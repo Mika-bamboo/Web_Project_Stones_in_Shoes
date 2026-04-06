@@ -1134,7 +1134,8 @@
 
       ctx.save();
       ctx.translate(anchorX, anchorY);
-      ctx.rotate(footAngle);
+      ctx.scale(-1, 1);  /* Mirror horizontally: toe faces left (walking left→right) */
+      ctx.rotate(-footAngle);
 
       const sw = 1.5; /* stroke weight */
       ctx.lineWidth = sw;
@@ -1142,8 +1143,8 @@
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
 
-      /* Scale factor based on viewport width */
-      const S = W / 720;
+      /* Scale factor based on viewport width — larger shoe */
+      const S = W / 460;
       const scale = (v) => v * S;
 
       /* ---- Shoe dimensions ---- */
@@ -1288,22 +1289,24 @@
       ctx.restore();
 
       /* ---- Anatomy labels (faint, always visible) ---- */
+      /* Counter-mirror so text reads left-to-right despite the shoe flip */
       ctx.save();
+      ctx.scale(-1, 1); /* undo the parent mirror for text only */
       ctx.font = `${Math.max(9, scale(10))}px ${getComputedStyle(document.documentElement).getPropertyValue("--font")}`;
       ctx.fillStyle = c.stroke;
       ctx.globalAlpha = 0.25;
-      ctx.textAlign = "left";
 
-      /* Collar label */
-      ctx.fillText("collar", ankleX + scale(18), collarTopY - scale(6));
+      /* Collar label (positions are negated on X due to counter-mirror) */
+      ctx.textAlign = "right";
+      ctx.fillText("collar", -(ankleX + scale(18)), collarTopY - scale(6));
 
       /* Heel notch label */
-      ctx.textAlign = "right";
-      ctx.fillText("heel notch", heelX - scale(4), collarTopY + notchDepth * 0.5);
+      ctx.textAlign = "left";
+      ctx.fillText("heel notch", -(heelX - scale(4)), collarTopY + notchDepth * 0.5);
 
       /* Topline label */
       ctx.textAlign = "center";
-      ctx.fillText("topline", ankleX, collarTopY - scale(14));
+      ctx.fillText("topline", -ankleX, collarTopY - scale(14));
 
       ctx.restore();
 
@@ -1358,7 +1361,7 @@
       ctx.fillRect(0, 0, W, H);
 
       /* --- Ground line --- */
-      const groundY = H * 0.72;
+      const groundY = H * 0.78;
 
       /* Gait phase */
       const phase = (time % CYCLE_DURATION) / CYCLE_DURATION;
@@ -1413,25 +1416,26 @@
       /* --- Draw a simplified leg line above the shoe (calf line) --- */
       ctx.save();
       ctx.translate(shoeAnchorX, shoeAnchorY);
-      ctx.rotate(pose.footAngle * 0.3); /* leg sways slightly with foot */
+      ctx.rotate(-pose.footAngle * 0.3); /* leg sways slightly with foot (negated for flipped shoe) */
       ctx.beginPath();
-      const S = W / 720;
+      const S = W / 460;
       const legStartY = -36 * S;
-      ctx.moveTo(-20 * S, legStartY);
-      ctx.quadraticCurveTo(-16 * S, legStartY - 80 * S, -8 * S, legStartY - 140 * S);
+      /* Leg lines mirrored to match flipped shoe (shin on right side) */
+      ctx.moveTo(20 * S, legStartY);
+      ctx.quadraticCurveTo(16 * S, legStartY - 80 * S, 8 * S, legStartY - 140 * S);
       ctx.strokeStyle = c.stroke;
       ctx.lineWidth = 1.5;
       ctx.stroke();
       /* Second line for calf width */
       ctx.beginPath();
-      ctx.moveTo(-6 * S, legStartY);
-      ctx.quadraticCurveTo(-2 * S, legStartY - 80 * S, 2 * S, legStartY - 140 * S);
+      ctx.moveTo(6 * S, legStartY);
+      ctx.quadraticCurveTo(2 * S, legStartY - 80 * S, -2 * S, legStartY - 140 * S);
       ctx.stroke();
       ctx.restore();
 
       /* --- Gait phase label (tiny, bottom-left) --- */
       ctx.save();
-      ctx.font = `${Math.max(9, 10 * S)}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+      ctx.font = `${Math.max(9, 10 * (W / 720))}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
       ctx.fillStyle = c.stroke;
       ctx.globalAlpha = 0.2;
       ctx.textAlign = "left";
