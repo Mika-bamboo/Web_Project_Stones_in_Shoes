@@ -1074,67 +1074,76 @@
 
     /* Map gait phase (0-1) to foot pose.
        Walking direction: right → left (toe points left on screen).
-       ankleY in raw pixels (scaled by caller's viewport height). */
-    function getFootPose(phase, H) {
-      /* Scale vertical offsets relative to viewport so motion looks
-         proportional regardless of shoe size */
-      const u = H / 400; /* unit scale */
 
-      let ankleY = 0;
+       Returns:
+         footAngle  — rotation of the foot (radians, positive = heel up)
+         collarGap  — 0-1 how open the collar is
+         pivot      — "flat" | "ball" | "airborne" | "heel"
+                      which part of the shoe stays on the ground
+         liftY      — extra vertical lift during swing (pixels, pre-scaled)
+    */
+    function getFootPose(phase) {
       let footAngle = 0;
       let collarGap = 0;
+      let pivot = "flat";
+      let liftY = 0;
 
-      if (phase < 0.12) {
-        /* Heel strike → foot flat */
-        const t = phase / 0.12;
+      if (phase < 0.10) {
+        /* Heel strike — heel touches down, toe is up, foot settles */
+        const t = phase / 0.10;
         const s = smoothstep(t);
-        footAngle = -0.15 * (1 - s);     /* toe-up, settling to flat */
-        ankleY = -4 * u * (1 - s);       /* slight bounce on impact */
-        collarGap = 0.2 * (1 - s);
+        footAngle = -0.20 * (1 - s);     /* toe up, settling to flat */
+        collarGap = 0.15 * (1 - s);
+        pivot = "heel";
       } else if (phase < 0.35) {
-        /* Foot flat / midstance — stable on ground */
+        /* Foot flat / midstance — entire sole on the ground */
         footAngle = 0;
-        ankleY = 0;
         collarGap = 0.05;
+        pivot = "flat";
       } else if (phase < 0.58) {
-        /* Heel off → toe off — foot pivots, heel rises */
+        /* Heel off → toe off — ball stays planted, heel peels up */
         const t = (phase - 0.35) / 0.23;
         const s = smoothstep(t);
-        footAngle = 0.32 * s;            /* toe pushes down */
-        ankleY = -14 * u * s;            /* ankle lifts */
-        collarGap = 0.15 + 0.85 * s;     /* collar opens wide */
+        footAngle = 0.45 * s;            /* heel rises, pivoting at ball */
+        collarGap = 0.15 + 0.85 * s;
+        pivot = "ball";
       } else {
-        /* Swing phase — foot airborne, swings forward */
+        /* Swing — foot is airborne */
         const t = (phase - 0.58) / 0.42;
-        if (t < 0.45) {
-          /* Lift + forward swing */
-          const s = smoothstep(t / 0.45);
-          footAngle = 0.32 * (1 - s) + (-0.08) * s;
-          ankleY = (-14 + -22 * s) * u;  /* rises to peak */
-          collarGap = 1.0 * (1 - s * 0.5);
+        pivot = "airborne";
+        if (t < 0.40) {
+          /* Lift off + forward swing */
+          const s = smoothstep(t / 0.40);
+          footAngle = 0.45 * (1 - s) + (-0.05) * s; /* unwinds from toe-off */
+          liftY = s * 1.0;               /* normalized 0-1, scaled later */
+          collarGap = 1.0 * (1 - s * 0.6);
         } else {
           /* Descend toward next heel strike */
-          const s = smoothstep((t - 0.45) / 0.55);
-          footAngle = -0.08 * (1 - s) + (-0.15) * s;
-          ankleY = (-36 * (1 - s) + -4 * s) * u;
-          collarGap = 0.5 * (1 - s) + 0.2 * s;
+          const s = smoothstep((t - 0.40) / 0.60);
+          footAngle = -0.05 * (1 - s) + (-0.20) * s;  /* tilts for heel strike */
+          liftY = (1 - s) * 1.0;
+          collarGap = 0.4 * (1 - s) + 0.15 * s;
         }
       }
-      return { ankleY, footAngle, collarGap };
+      return { footAngle, collarGap, pivot, liftY };
     }
 
     /* -------------------------------------------------------
-       Draw the shoe cross-section (line art)
-       The shoe is drawn relative to an anchor point (ankle).
-       Coordinate system: anchor is at (0,0), +x right, +y down.
+       Draw the shoe cross-section (line art).
+       pivotScreenX/Y = the point on the shoe that is anchored
+       (stays fixed). pivotLocalX = that point's x in shoe-local
+       coords (pre-mirror). The shoe rotates around the pivot.
        ------------------------------------------------------- */
-    function drawShoe(anchorX, anchorY, pose, c, W) {
+    function drawShoe(pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY, pose, c, W) {
       const { footAngle, collarGap } = pose;
 
       ctx.save();
-      ctx.translate(anchorX, anchorY);
-      ctx.scale(-1, 1);  /* Mirror horizontally: toe faces left (walking left→right) */
+      ctx.translate(pivotScreenX, pivotScreenY);
+      ctx.scale(-1, 1);  /* Mirror: toe faces left */
+      /* Rotate around the pivot (which is now at origin) */
       ctx.rotate(-footAngle);
+      /* Offset so shoe draws relative to pivot, not ankle */
+      ctx.translate(-pivotLocalX, -pivotLocalY);
 
       const sw = 1.5; /* stroke weight */
       ctx.lineWidth = sw;
@@ -1364,7 +1373,7 @@
 
       /* Gait phase */
       const phase = (time % CYCLE_DURATION) / CYCLE_DURATION;
-      const pose = getFootPose(phase, H);
+      const pose = getFootPose(phase);
 
       /* Horizontal position: shoe stays centered, ground scrolls RIGHT (shoe walks left) */
       const walkSpeed = W * 0.15; /* px per second */
@@ -1406,30 +1415,91 @@
       }
       ctx.restore();
 
-      /* --- Draw shoe --- */
-      const shoeAnchorX = W * 0.48;
-      const shoeAnchorY = groundY + pose.ankleY;
+      /* --- Draw shoe with pivot-based gait --- */
+      const S = W / 460;
+      const sc = (v) => v * S;
 
-      drawShoe(shoeAnchorX, shoeAnchorY, pose, c, W);
+      /* Shoe-local key positions (pre-mirror, x+ = right toward toe) */
+      const ballLocalX = sc(40);
+      const heelLocalX = sc(-70);
+      const soleTopY   = 0;           /* y=0 = top of sole */
+      const soleBotY   = sc(8);       /* bottom of sole (ground contact) */
+
+      /* On-screen base position: where the ankle rests when flat */
+      const baseX = W * 0.48;
+      const baseY = groundY;  /* sole bottom sits on ground */
+
+      /* Pivot: which point stays fixed on the ground?
+         In shoe-local coords (pre-mirror):
+           ball  → (ballLocalX, soleBotY) — shoe-local x=+40
+           heel  → (heelLocalX, soleBotY) — shoe-local x=-70
+           flat  → ankle at (0, soleBotY)
+         On screen after mirror, shoe-local +x maps to screen -x.
+         So ball (local +40) appears LEFT of ankle on screen.
+         And heel (local -70) appears RIGHT of ankle on screen. */
+
+      let pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY;
+
+      if (pose.pivot === "ball") {
+        /* Ball of foot stays on ground — heel peels up */
+        pivotLocalX = ballLocalX;
+        pivotLocalY = soleBotY;
+        /* Ball screen position: base minus mirrored offset */
+        pivotScreenX = baseX + ballLocalX;  /* +40 in local → after mirror → LEFT, but we add because mirror flips in drawShoe */
+        pivotScreenY = baseY;
+      } else if (pose.pivot === "heel") {
+        /* Heel contacts ground — toe is up */
+        pivotLocalX = heelLocalX;
+        pivotLocalY = soleBotY;
+        pivotScreenX = baseX + heelLocalX;
+        pivotScreenY = baseY;
+      } else if (pose.pivot === "airborne") {
+        /* Foot is in the air — pivot around ankle (sole top), lifted */
+        pivotLocalX = 0;
+        pivotLocalY = soleBotY;
+        const maxLift = sc(55); /* max swing height */
+        pivotScreenX = baseX;
+        pivotScreenY = baseY - pose.liftY * maxLift;
+      } else {
+        /* Flat — sole bottom at ground, no rotation */
+        pivotLocalX = 0;
+        pivotLocalY = soleBotY;
+        pivotScreenX = baseX;
+        pivotScreenY = baseY;
+      }
+
+      drawShoe(pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY, pose, c, W);
+
+      /* --- Compute ankle screen position for leg attachment --- */
+      /* Ankle is at shoe-local (0, 0). After drawShoe's transforms:
+         screen = pivot + mirror * rotate(ankle - pivot_local) */
+      const dx = 0 - pivotLocalX;
+      const dy = 0 - pivotLocalY;
+      const cosA = Math.cos(-pose.footAngle);
+      const sinA = Math.sin(-pose.footAngle);
+      const rotX = dx * cosA - dy * sinA;
+      const rotY = dx * sinA + dy * cosA;
+      /* Mirror: screen x = pivot - rotX (because scale(-1,1)) */
+      const ankleScreenX = pivotScreenX - rotX;
+      const ankleScreenY = pivotScreenY + rotY;
 
       /* --- Draw a simplified leg/calf line above the shoe --- */
       ctx.save();
-      ctx.translate(shoeAnchorX, shoeAnchorY);
-      /* Leg tilts slightly with foot angle; negative because shoe is mirrored */
+      ctx.translate(ankleScreenX, ankleScreenY);
+      /* Leg tilts slightly with foot angle */
       ctx.rotate(-pose.footAngle * 0.25);
-      const S = W / 460;
-      const legStartY = -36 * S;
       ctx.strokeStyle = c.stroke;
       ctx.lineWidth = 1.5;
-      /* Front shin line (right side since shoe faces left) */
+      const legStartY = sc(-6);
+      /* Front shin line */
       ctx.beginPath();
-      ctx.moveTo(14 * S, legStartY);
-      ctx.quadraticCurveTo(10 * S, legStartY - 60 * S, 4 * S, legStartY - 130 * S);
+      ctx.moveTo(sc(4), legStartY);
+      ctx.quadraticCurveTo(sc(2), legStartY - sc(60), sc(-2), legStartY - sc(130));
       ctx.stroke();
       /* Rear calf line */
       ctx.beginPath();
-      ctx.moveTo(26 * S, legStartY);
-      ctx.quadraticCurveTo(22 * S, legStartY - 60 * S, 14 * S, legStartY - 130 * S);
+      ctx.moveTo(sc(16), legStartY);
+      ctx.quadraticCurveTo(sc(12), legStartY - sc(60), sc(6), legStartY - sc(130));
       ctx.stroke();
       ctx.restore();
 
@@ -1439,8 +1509,8 @@
       ctx.fillStyle = c.stroke;
       ctx.globalAlpha = 0.2;
       ctx.textAlign = "left";
-      const phaseNames = ["heel strike", "foot flat", "midstance", "heel off", "toe off", "swing", "swing", "swing"];
-      const phaseIdx = phase < 0.15 ? 0 : phase < 0.25 ? 1 : phase < 0.40 ? 2 : phase < 0.50 ? 3 : phase < 0.60 ? 4 : 5;
+      const phaseNames = ["heel strike", "foot flat", "midstance", "heel off", "toe off", "swing"];
+      const phaseIdx = phase < 0.10 ? 0 : phase < 0.20 ? 1 : phase < 0.35 ? 2 : phase < 0.46 ? 3 : phase < 0.58 ? 4 : 5;
       ctx.fillText(phaseNames[phaseIdx], 12, H - 10);
       ctx.restore();
 
