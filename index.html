@@ -1072,52 +1072,51 @@
       return t * t * (3 - 2 * t);
     }
 
-    /* Map gait phase (0-1) to foot pose */
-    function getFootPose(phase) {
-      /*
-       * Returns: { ankleY, toeY, heelY, footAngle, collarGap }
-       * All values are relative offsets from a baseline.
-       * ankleY:    vertical offset of ankle pivot (negative = up)
-       * footAngle: rotation of foot in radians (positive = toe down)
-       * collarGap: 0-1 how open the collar is
-       */
+    /* Map gait phase (0-1) to foot pose.
+       Walking direction: right → left (toe points left on screen).
+       ankleY in raw pixels (scaled by caller's viewport height). */
+    function getFootPose(phase, H) {
+      /* Scale vertical offsets relative to viewport so motion looks
+         proportional regardless of shoe size */
+      const u = H / 400; /* unit scale */
+
       let ankleY = 0;
       let footAngle = 0;
       let collarGap = 0;
 
-      if (phase < 0.15) {
-        /* Heel strike → foot flat: foot angles down from heel, ankle descends */
-        const t = phase / 0.15;
+      if (phase < 0.12) {
+        /* Heel strike → foot flat */
+        const t = phase / 0.12;
         const s = smoothstep(t);
-        footAngle = -0.18 * (1 - s);       /* foot tilted toe-up, settling to flat */
-        ankleY = -6 * (1 - s);             /* slight drop as heel hits */
-        collarGap = 0.2 * (1 - s);         /* small gap at impact, closing */
-      } else if (phase < 0.40) {
-        /* Foot flat / midstance: foot flat on ground, ankle stable */
+        footAngle = -0.15 * (1 - s);     /* toe-up, settling to flat */
+        ankleY = -4 * u * (1 - s);       /* slight bounce on impact */
+        collarGap = 0.2 * (1 - s);
+      } else if (phase < 0.35) {
+        /* Foot flat / midstance — stable on ground */
         footAngle = 0;
         ankleY = 0;
-        collarGap = 0.05;                  /* minimal gap */
-      } else if (phase < 0.60) {
-        /* Heel off → toe off: heel rises, foot pivots on toe */
-        const t = (phase - 0.40) / 0.20;
+        collarGap = 0.05;
+      } else if (phase < 0.58) {
+        /* Heel off → toe off — foot pivots, heel rises */
+        const t = (phase - 0.35) / 0.23;
         const s = smoothstep(t);
-        footAngle = 0.35 * s;              /* toe pushes down, heel rises */
-        ankleY = -12 * s;                  /* ankle rises significantly */
-        collarGap = 0.15 + 0.85 * s;       /* collar opens wide at toe-off */
+        footAngle = 0.32 * s;            /* toe pushes down */
+        ankleY = -14 * u * s;            /* ankle lifts */
+        collarGap = 0.15 + 0.85 * s;     /* collar opens wide */
       } else {
-        /* Swing phase: foot lifts off, swings forward */
-        const t = (phase - 0.60) / 0.40;
-        if (t < 0.5) {
-          /* Rising + forward swing */
-          const s = smoothstep(t * 2);
-          footAngle = 0.35 * (1 - s) + (-0.10) * s; /* relaxes from toe-off to slight dorsiflexion */
-          ankleY = -12 + (-18) * s;                   /* rises further */
-          collarGap = 1.0 * (1 - s * 0.5);           /* gap starts closing */
+        /* Swing phase — foot airborne, swings forward */
+        const t = (phase - 0.58) / 0.42;
+        if (t < 0.45) {
+          /* Lift + forward swing */
+          const s = smoothstep(t / 0.45);
+          footAngle = 0.32 * (1 - s) + (-0.08) * s;
+          ankleY = (-14 + -22 * s) * u;  /* rises to peak */
+          collarGap = 1.0 * (1 - s * 0.5);
         } else {
-          /* Descending toward heel strike */
-          const s = smoothstep((t - 0.5) * 2);
-          footAngle = -0.10 * (1 - s) + (-0.18) * s;  /* prepares for heel strike */
-          ankleY = -30 * (1 - s) + (-6) * s;           /* descends back */
+          /* Descend toward next heel strike */
+          const s = smoothstep((t - 0.45) / 0.55);
+          footAngle = -0.08 * (1 - s) + (-0.15) * s;
+          ankleY = (-36 * (1 - s) + -4 * s) * u;
           collarGap = 0.5 * (1 - s) + 0.2 * s;
         }
       }
@@ -1365,12 +1364,11 @@
 
       /* Gait phase */
       const phase = (time % CYCLE_DURATION) / CYCLE_DURATION;
-      const pose = getFootPose(phase);
+      const pose = getFootPose(phase, H);
 
-      /* Horizontal position: shoe stays centered, ground scrolls */
-      /* Ground scroll offset based on time (walking forward) */
+      /* Horizontal position: shoe stays centered, ground scrolls RIGHT (shoe walks left) */
       const walkSpeed = W * 0.15; /* px per second */
-      const groundOffset = (time * walkSpeed) % W;
+      const groundOffset = -(time * walkSpeed) % W;
 
       /* --- Draw ground surface (hatched texture) --- */
       ctx.fillStyle = c.ground;
@@ -1381,7 +1379,8 @@
       ctx.strokeStyle = c.stroke;
       ctx.globalAlpha = 0.06;
       ctx.lineWidth = 0.5;
-      for (let hx = -groundOffset % 12; hx < W; hx += 12) {
+      const hatchOff = ((groundOffset % 12) + 12) % 12; /* always positive */
+      for (let hx = -hatchOff; hx < W + 12; hx += 12) {
         ctx.beginPath();
         ctx.moveTo(hx, groundY + 2);
         ctx.lineTo(hx + 6, groundY + 8);
@@ -1400,8 +1399,8 @@
       /* --- Draw scattered stones on ground --- */
       ctx.save();
       for (const stone of groundStones) {
-        /* Scroll stones with ground */
-        let sx = ((stone.x - groundOffset) % (W * 2) + W * 2) % (W * 2) - W * 0.5;
+        /* Scroll stones with ground (ground moves right as shoe walks left) */
+        let sx = ((stone.x + groundOffset) % (W * 2) + W * 2) % (W * 2) - W * 0.5;
         if (sx < -10 || sx > W + 10) continue;
         drawStone(sx, groundY + stone.y, stone.r, stone.rot, stone.sides, c);
       }
@@ -1413,23 +1412,24 @@
 
       drawShoe(shoeAnchorX, shoeAnchorY, pose, c, W);
 
-      /* --- Draw a simplified leg line above the shoe (calf line) --- */
+      /* --- Draw a simplified leg/calf line above the shoe --- */
       ctx.save();
       ctx.translate(shoeAnchorX, shoeAnchorY);
-      ctx.rotate(-pose.footAngle * 0.3); /* leg sways slightly with foot (negated for flipped shoe) */
-      ctx.beginPath();
+      /* Leg tilts slightly with foot angle; negative because shoe is mirrored */
+      ctx.rotate(-pose.footAngle * 0.25);
       const S = W / 460;
       const legStartY = -36 * S;
-      /* Leg lines mirrored to match flipped shoe (shin on right side) */
-      ctx.moveTo(20 * S, legStartY);
-      ctx.quadraticCurveTo(16 * S, legStartY - 80 * S, 8 * S, legStartY - 140 * S);
       ctx.strokeStyle = c.stroke;
       ctx.lineWidth = 1.5;
-      ctx.stroke();
-      /* Second line for calf width */
+      /* Front shin line (right side since shoe faces left) */
       ctx.beginPath();
-      ctx.moveTo(6 * S, legStartY);
-      ctx.quadraticCurveTo(2 * S, legStartY - 80 * S, -2 * S, legStartY - 140 * S);
+      ctx.moveTo(14 * S, legStartY);
+      ctx.quadraticCurveTo(10 * S, legStartY - 60 * S, 4 * S, legStartY - 130 * S);
+      ctx.stroke();
+      /* Rear calf line */
+      ctx.beginPath();
+      ctx.moveTo(26 * S, legStartY);
+      ctx.quadraticCurveTo(22 * S, legStartY - 60 * S, 14 * S, legStartY - 130 * S);
       ctx.stroke();
       ctx.restore();
 
