@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stone-In-Shoe — UI Wireframe</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-secondary: #f5f5f0;
+    --bg-info: #e6f1fb;
+    --bg-success: #eaf3de;
+    --bg-warning: #faeeda;
+    --bg-danger: #fcebeb;
+    --text: #1a1a1a;
+    --text-secondary: #6b6b6b;
+    --text-tertiary: #999999;
+    --text-info: #185fa5;
+    --text-success: #3b6d11;
+    --text-warning: #854f0b;
+    --text-danger: #a32d2d;
+    --border: rgba(0,0,0,0.12);
+    --border-strong: rgba(0,0,0,0.25);
+    --radius: 8px;
+    --radius-lg: 12px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a1a;
+      --bg-secondary: #2a2a2a;
+      --bg-info: #0c447c;
+      --bg-success: #27500a;
+      --bg-warning: #633806;
+      --bg-danger: #791f1f;
+      --text: #e8e8e8;
+      --text-secondary: #a0a0a0;
+      --text-tertiary: #707070;
+      --text-info: #85b7eb;
+      --text-success: #97c459;
+      --text-warning: #fac775;
+      --text-danger: #f09595;
+      --border: rgba(255,255,255,0.12);
+      --border-strong: rgba(255,255,255,0.25);
+    }
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font);
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.6;
+  }
+
+  .page-header {
+    text-align: center;
+    padding: 3rem 1rem 2rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2rem;
+  }
+
+  .page-header h1 {
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .page-header p {
+    font-size: 14px;
+    color: var(--text-secondary);
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  .wireframe {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 0 1rem 3rem;
+  }
+
+  .section {
+    margin-bottom: 2.5rem;
+  }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-info);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .section-title {
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  .frame {
+    border: 1.5px dashed var(--border-strong);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    background: var(--bg-secondary);
+  }
+
+  .frame-inner {
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    padding: 1rem;
+    margin-bottom: 10px;
+  }
+
+  .frame-inner:last-child { margin-bottom: 0; }
+
+  .placeholder-anim {
+    height: 160px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius);
+    background: var(--bg-info);
+    color: var(--text-info);
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    line-height: 1.8;
+    gap: 2px;
+  }
+
+  .placeholder-chart {
+    height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius);
+    background: var(--bg-success);
+    color: var(--text-success);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .placeholder-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+  }
+
+  .placeholder-control label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-width: 90px;
+  }
+
+  .placeholder-control input[type="range"] {
+    flex: 1;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+  }
+
+  .placeholder-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--text-info);
+    cursor: pointer;
+  }
+
+  .placeholder-control span {
+    font-size: 12px;
+    font-weight: 600;
+    min-width: 32px;
+    text-align: right;
+  }
+
+  .text-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 0;
+  }
+
+  .text-line {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--border);
+  }
+
+  .text-line.short { width: 55%; }
+  .text-line.med { width: 80%; }
+  .text-line.long { width: 100%; }
+
+  .popup-badge {
+    display: inline-block;
+    background: var(--bg-warning);
+    color: var(--text-warning);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 14px;
+    border-radius: var(--radius);
+    margin-top: 10px;
+  }
+
+  .shoe-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+
+  .shoe-tab {
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: var(--radius);
+    border: 0.5px solid var(--border);
+    background: var(--bg);
+    color: var(--text-secondary);
+    cursor: default;
+  }
+
+  .shoe-tab.active {
+    background: var(--bg-info);
+    color: var(--text-info);
+    border-color: var(--text-info);
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .stat-box {
+    background: var(--bg-secondary);
+    border-radius: var(--radius);
+    padding: 10px;
+    text-align: center;
+  }
+
+  .stat-box .val {
+    font-size: 20px;
+    font-weight: 600;
+  }
+
+  .stat-box .lbl {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .arrow-down {
+    display: flex;
+    justify-content: center;
+    padding: 10px 0;
+    color: var(--text-tertiary);
+    font-size: 20px;
+  }
+
+  .nav-hint {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-align: center;
+    padding: 0 0 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .annotation {
+    font-size: 11px;
+    color: var(--text-warning);
+    font-style: italic;
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: var(--bg-warning);
+    border-radius: var(--radius);
+    line-height: 1.5;
+  }
+
+  .section-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    line-height: 1.5;
+  }
+
+  .btn-mock {
+    font-size: 12px;
+    padding: 7px 20px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-strong);
+    background: var(--bg);
+    color: var(--text);
+    cursor: default;
+    font-weight: 500;
+  }
+
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 0.5rem 0 2rem;
+  }
+
+  .footer {
+    text-align: center;
+    padding: 2rem 0;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    border-top: 1px solid var(--border);
+    margin-top: 1rem;
+  }
+
+  .footer a {
+    color: var(--text-info);
+    text-decoration: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Stone-In-Shoe — UI wireframe</h1>
+  <p>Scroll-driven storytelling structure for the interactive physics simulation. Six acts, progressively revealing controls and insights.</p>
+</div>
+
+<div class="wireframe">
+
+  <!-- ACT 1 -->
+  <div class="section">
+    <div class="section-label">Act 1 — The hook</div>
+    <div class="section-title">Auto-playing walking animation</div>
+    <div class="section-desc">No controls. The user simply watches a person walk. After a few steps, a counter pops up revealing stones have entered the shoe. Goal: spark curiosity.</div>
+    <div class="frame">
+      <div class="frame-inner">
+        <div class="placeholder-anim">
+          [ Side-view walking animation ]<br>Foot + ground + scattered stones
+        </div>
+        <div style="text-align:center">
+          <div class="popup-badge">3 stones entered your shoe</div>
+        </div>
+      </div>
+      <div class="text-lines">
+        <div class="text-line long"></div>
+        <div class="text-line med"></div>
+        <div class="text-line short"></div>
+      </div>
+      <div class="annotation">Design note: Zero interactivity here. Pure observation. The popup counter is the only surprise element — it appears after ~5 steps to break the passive watching.</div>
+    </div>
+  </div>
+
+  <div class="arrow-down">&#8595;</div>
+  <div class="nav-hint">scroll to continue</div>
+
+  <!-- ACT 2 -->
+  <div class="section">
+    <div class="section-label">Act 2 — Zoom in: the kick-up</div>
+    <div class="section-title">Close-up of toe-off + first interactive controls</div>
+    <div class="section-desc">Camera zooms to the outsole lifting off the ground. Dotted parabolic arcs show stone trajectories. User gets their first sliders: walking speed and stone size.</div>
+    <div class="frame">
+      <div class="frame-inner">
+        <div class="placeholder-anim" style="height:140px;">
+          [ Close-up: outsole toe-off moment ]<br>Dotted parabolic trajectories of kicked stones
+        </div>
+      </div>
+      <div class="frame-inner">
+        <div class="placeholder-control">
+          <label>Walking speed</label>
+          <input type="range" min="1" max="10" value="5">
+          <span>5</span>
+        </div>
+        <div class="placeholder-control">
+          <label>Stone size</label>
+          <input type="range" min="1" max="10" value="4">
+          <span>4mm</span>
+        </div>
+      </div>
+      <div class="text-lines">
+        <div class="text-line long"></div>
+        <div class="text-line med"></div>
+      </div>
+      <div class="annotation">Design note: First interactive moment. User discovers that faster walking = higher kick-up arcs. Only 2 sliders — keep it simple.</div>
+    </div>
+  </div>
+
+  <div class="arrow-down">&#8595;</div>
+  <div class="nav-hint">scroll to continue</div>
+
+  <!-- ACT 3 -->
+  <div class="section">
+    <div class="section-label">Act 3 — Zoom in: the entry point</div>
+    <div class="section-title">Collar gap cross-section + collar controls</div>
+    <div class="section-desc">Camera shifts to the ankle area. A cross-section view shows the collar gap opening and closing during the gait cycle. Stone particles hover near the edge. User controls collar height and heel notch width.</div>
+    <div class="frame">
+      <div class="frame-inner">
+        <div class="placeholder-anim" style="height:140px;">
+          [ Cross-section: ankle area ]<br>Collar gap opening &amp; closing with gait cycle<br>Stone particles near the topline edge
+        </div>
+      </div>
+      <div class="frame-inner">
+        <div class="placeholder-control">
+          <label>Collar height</label>
+          <input type="range" min="1" max="10" value="3">
+          <span>Low</span>
+        </div>
+        <div class="placeholder-control">
+          <label>Heel notch</label>
+          <input type="range" min="1" max="10" value="7">
+          <span>Wide</span>
+        </div>
+      </div>
+      <div class="annotation">Design note: The "aha" moment — user finally sees the collar gap mechanism. Adjusting collar height shows immediate visual change in gap size. Labels use correct shoe anatomy terms (collar, heel notch, topline).</div>
+    </div>
+  </div>
+
+  <div class="arrow-down">&#8595;</div>
+  <div class="nav-hint">scroll to continue</div>
+
+  <!-- ACT 4 -->
+  <div class="section">
+    <div class="section-label">Act 4 — The question</div>
+    <div class="section-title">"Which shoe lets in the most stones?"</div>
+    <div class="section-desc">Gamification moment. User sees 4 shoe profiles side by side, picks their prediction, then hits "Run 100 steps" to see the real answer.</div>
+    <div class="frame">
+      <div class="frame-inner">
+        <div class="shoe-tabs">
+          <div class="shoe-tab">Sandal</div>
+          <div class="shoe-tab active">Sneaker</div>
+          <div class="shoe-tab">Oxford</div>
+          <div class="shoe-tab">Boot</div>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <div class="placeholder-anim" style="height:100px; font-size:11px;">
+            [ Shoe A profile ]<br>with collar outline
+          </div>
+          <div class="placeholder-anim" style="height:100px; font-size:11px;">
+            [ Shoe B profile ]<br>with collar outline
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+          <div class="placeholder-anim" style="height:100px; font-size:11px;">
+            [ Shoe C profile ]<br>with collar outline
+          </div>
+          <div class="placeholder-anim" style="height:100px; font-size:11px;">
+            [ Shoe D profile ]<br>with collar outline
+          </div>
+        </div>
+        <div style="text-align:center; padding: 12px 0 4px;">
+          <span class="btn-mock">Run 100 steps</span>
+        </div>
+      </div>
+      <div class="annotation">Design note: Key engagement mechanic — prediction before reveal. Most people guess sandals are worst. The counter-intuitive truth: sneakers RETAIN more stones because sandals let them fall back out.</div>
+    </div>
+  </div>
+
+  <div class="arrow-down">&#8595;</div>
+  <div class="nav-hint">scroll to continue</div>
+
+  <!-- ACT 5 -->
+  <div class="section">
+    <div class="section-label">Act 5 — The reveal</div>
+    <div class="section-title">Results comparison + counter-intuitive insight</div>
+    <div class="section-desc">Bar chart shows stones retained per 100 steps across all shoe types. Stat cards highlight the key numbers. The narrative explains WHY the result is surprising.</div>
+    <div class="frame">
+      <div class="frame-inner">
+        <div class="placeholder-chart">
+          [ Bar chart: stones retained per 100 steps by shoe type ]
+        </div>
+        <div class="stats-row">
+          <div class="stat-box">
+            <div class="val" style="color: var(--text-danger);">12</div>
+            <div class="lbl">Sneaker</div>
+          </div>
+          <div class="stat-box">
+            <div class="val" style="color: var(--text-warning);">7</div>
+            <div class="lbl">Sandal</div>
+          </div>
+          <div class="stat-box">
+            <div class="val" style="color: var(--text-success);">0</div>
+            <div class="lbl">Boot</div>
+          </div>
+        </div>
+      </div>
+      <div class="text-lines">
+        <div class="text-line long"></div>
+        <div class="text-line long"></div>
+        <div class="text-line med"></div>
+        <div class="text-line short"></div>
+      </div>
+      <div class="annotation">Design note: This is the climax. Narrative text here should explain the "entry vs retention" distinction — sandals let stones in AND out, sneakers trap them. The stat card colors reinforce the ranking (red = worst, green = best).</div>
+    </div>
+  </div>
+
+  <div class="arrow-down">&#8595;</div>
+  <div class="nav-hint">scroll to continue</div>
+
+  <!-- ACT 6 -->
+  <div class="section">
+    <div class="section-label">Act 6 — The sandbox</div>
+    <div class="section-title">Free-play simulator with all controls</div>
+    <div class="section-desc">Full simulation unlocked. All shoe types, all parameters exposed. User has built enough understanding from Acts 1–5 to know what each control does and why it matters.</div>
+    <div class="frame">
+      <div class="frame-inner">
+        <div class="shoe-tabs">
+          <div class="shoe-tab active">Sneaker</div>
+          <div class="shoe-tab">Sandal</div>
+          <div class="shoe-tab">Oxford</div>
+          <div class="shoe-tab">High-top</div>
+          <div class="shoe-tab">Boot</div>
+        </div>
+        <div class="placeholder-anim" style="height:200px;">
+          [ Full simulation view ]<br>Walking animation + stone particles + shoe cross-section<br>All entry mechanisms visible with color coding
+        </div>
+      </div>
+      <div class="frame-inner">
+        <div class="placeholder-control">
+          <label>Walking speed</label>
+          <input type="range" min="1" max="10" value="5">
+          <span>5</span>
+        </div>
+        <div class="placeholder-control">
+          <label>Stone density</label>
+          <input type="range" min="1" max="10" value="6">
+          <span>6</span>
+        </div>
+        <div class="placeholder-control">
+          <label>Stone size</label>
+          <input type="range" min="1" max="10" value="4">
+          <span>4mm</span>
+        </div>
+        <div class="placeholder-control">
+          <label>Surface</label>
+          <input type="range" min="1" max="10" value="2">
+          <span>Dry</span>
+        </div>
+      </div>
+      <div class="frame-inner">
+        <div class="stats-row">
+          <div class="stat-box">
+            <div class="val">24</div>
+            <div class="lbl">Steps</div>
+          </div>
+          <div class="stat-box">
+            <div class="val">3</div>
+            <div class="lbl">Stones in</div>
+          </div>
+          <div class="stat-box">
+            <div class="val">12.5%</div>
+            <div class="lbl">Entry rate</div>
+          </div>
+        </div>
+      </div>
+      <div class="annotation">Design note: This is the reward for completing the story. All controls from previous acts are consolidated here. The user now understands every parameter from context, so the full control panel doesn't feel overwhelming.</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>UI wireframe for <a href="./PROJECT_BLUEPRINT.md">Stone-In-Shoe Simulator</a></p>
+    <p style="margin-top: 4px;">Dashed borders = wireframe containers. Blue blocks = animation placeholders. Green blocks = chart placeholders.</p>
+    <p style="margin-top: 4px;">Yellow annotations = design intent notes (not shown in final product).</p>
+    <p style="margin-top: 8px;">Last updated: 2026-04-04</p>
+  </div>
+
+</div>
+
+</body>
+</html>
