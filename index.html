@@ -563,6 +563,13 @@
     100% { transform: scaleY(0.4); opacity: 0.3; }
   }
 
+  /* ===== Canvas inside viewport ===== */
+  .viewport canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
   /* ===== Footer ===== */
   .site-footer {
     text-align: center;
@@ -606,10 +613,7 @@
   <div class="act-desc">You're walking on a gravel path. It's inevitable. Scroll to walk.</div>
 
   <div class="viewport" id="viewport1">
-    <div class="viewport-label">
-      Side-view walking animation
-      <span>Foot + ground + scattered stones — canvas renders here</span>
-    </div>
+    <canvas id="canvas1"></canvas>
   </div>
 
   <div style="text-align:center;">
@@ -993,6 +997,454 @@
       card.classList.add("active");
     });
   });
+
+  /* ================================================================
+     ACT 1 — Canvas walking animation
+     2D side-view gait cycle with line-art shoe cross-section.
+     Shoe shows: outsole, upper, collar, topline, heel notch, tongue.
+     Loops continuously via requestAnimationFrame.
+     ================================================================ */
+  (function initAct1Canvas() {
+    const canvas = document.getElementById("canvas1");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const viewport = document.getElementById("viewport1");
+
+    /* --- Responsive sizing (retina-aware) --- */
+    function resize() {
+      const rect = viewport.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    /* --- Color helpers (respect dark mode) --- */
+    function colors() {
+      const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      return {
+        bg:     dark ? "#111111" : "#ffffff",
+        stroke: dark ? "#e4e4e4" : "#1a1a1a",
+        ground: dark ? "#333333" : "#d4d4d0",
+        gravel: dark ? "#555555" : "#b0b0a8",
+        accent: "#D85A30",
+        faint:  dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+      };
+    }
+
+    /* --- Ground stones (static decorative gravel) --- */
+    const groundStones = [];
+    function generateStones() {
+      groundStones.length = 0;
+      const w = viewport.getBoundingClientRect().width;
+      /* Generate enough stones to tile across 2x width (for seamless scroll) */
+      for (let i = 0; i < 80; i++) {
+        groundStones.push({
+          x: Math.random() * w * 2,
+          y: Math.random() * 8 + 1,           /* 1-9px below ground line */
+          r: Math.random() * 2.5 + 1.5,       /* radius 1.5-4px */
+          rot: Math.random() * Math.PI * 2,
+          sides: Math.floor(Math.random() * 3) + 5, /* 5-7 sided polygon */
+        });
+      }
+    }
+    generateStones();
+    window.addEventListener("resize", generateStones);
+
+    /* -------------------------------------------------------
+       Gait cycle model
+       One cycle = 1.0 (0-0.6 stance, 0.6-1.0 swing)
+       Phase boundaries within cycle:
+         0.00 - 0.15  Heel strike → foot flat
+         0.15 - 0.40  Foot flat (midstance)
+         0.40 - 0.60  Heel off → toe off
+         0.60 - 1.00  Swing phase
+       ------------------------------------------------------- */
+    const CYCLE_DURATION = 1.2; /* seconds per full gait cycle */
+    let time = 0;
+    let lastTimestamp = null;
+
+    /* Easing: smooth step */
+    function smoothstep(t) {
+      t = Math.max(0, Math.min(1, t));
+      return t * t * (3 - 2 * t);
+    }
+
+    /* Map gait phase (0-1) to foot pose */
+    function getFootPose(phase) {
+      /*
+       * Returns: { ankleY, toeY, heelY, footAngle, collarGap }
+       * All values are relative offsets from a baseline.
+       * ankleY:    vertical offset of ankle pivot (negative = up)
+       * footAngle: rotation of foot in radians (positive = toe down)
+       * collarGap: 0-1 how open the collar is
+       */
+      let ankleY = 0;
+      let footAngle = 0;
+      let collarGap = 0;
+
+      if (phase < 0.15) {
+        /* Heel strike → foot flat: foot angles down from heel, ankle descends */
+        const t = phase / 0.15;
+        const s = smoothstep(t);
+        footAngle = -0.18 * (1 - s);       /* foot tilted toe-up, settling to flat */
+        ankleY = -6 * (1 - s);             /* slight drop as heel hits */
+        collarGap = 0.2 * (1 - s);         /* small gap at impact, closing */
+      } else if (phase < 0.40) {
+        /* Foot flat / midstance: foot flat on ground, ankle stable */
+        footAngle = 0;
+        ankleY = 0;
+        collarGap = 0.05;                  /* minimal gap */
+      } else if (phase < 0.60) {
+        /* Heel off → toe off: heel rises, foot pivots on toe */
+        const t = (phase - 0.40) / 0.20;
+        const s = smoothstep(t);
+        footAngle = 0.35 * s;              /* toe pushes down, heel rises */
+        ankleY = -12 * s;                  /* ankle rises significantly */
+        collarGap = 0.15 + 0.85 * s;       /* collar opens wide at toe-off */
+      } else {
+        /* Swing phase: foot lifts off, swings forward */
+        const t = (phase - 0.60) / 0.40;
+        if (t < 0.5) {
+          /* Rising + forward swing */
+          const s = smoothstep(t * 2);
+          footAngle = 0.35 * (1 - s) + (-0.10) * s; /* relaxes from toe-off to slight dorsiflexion */
+          ankleY = -12 + (-18) * s;                   /* rises further */
+          collarGap = 1.0 * (1 - s * 0.5);           /* gap starts closing */
+        } else {
+          /* Descending toward heel strike */
+          const s = smoothstep((t - 0.5) * 2);
+          footAngle = -0.10 * (1 - s) + (-0.18) * s;  /* prepares for heel strike */
+          ankleY = -30 * (1 - s) + (-6) * s;           /* descends back */
+          collarGap = 0.5 * (1 - s) + 0.2 * s;
+        }
+      }
+      return { ankleY, footAngle, collarGap };
+    }
+
+    /* -------------------------------------------------------
+       Draw the shoe cross-section (line art)
+       The shoe is drawn relative to an anchor point (ankle).
+       Coordinate system: anchor is at (0,0), +x right, +y down.
+       ------------------------------------------------------- */
+    function drawShoe(anchorX, anchorY, pose, c, W) {
+      const { footAngle, collarGap } = pose;
+
+      ctx.save();
+      ctx.translate(anchorX, anchorY);
+      ctx.rotate(footAngle);
+
+      const sw = 1.5; /* stroke weight */
+      ctx.lineWidth = sw;
+      ctx.strokeStyle = c.stroke;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      /* Scale factor based on viewport width */
+      const S = W / 720;
+      const scale = (v) => v * S;
+
+      /* ---- Shoe dimensions ---- */
+      const soleLen   = scale(140);   /* outsole length */
+      const soleThick = scale(8);     /* outsole thickness */
+      const heelH     = scale(16);    /* heel stack height */
+      const toeRise   = scale(4);     /* toe spring (slight upturn) */
+      const upperH    = scale(50);    /* upper height at midfoot */
+      const collarH   = scale(36);    /* collar height above sole at ankle */
+      const heelCupH  = scale(42);    /* rear upper height */
+      const tongueH   = scale(30);    /* tongue extends above vamp */
+      const ankleX    = scale(-20);   /* ankle position relative to shoe center */
+
+      /* Key x positions along shoe length */
+      const toeX     = scale(70);     /* toe tip */
+      const ballX    = scale(40);     /* ball of foot */
+      const heelX    = scale(-70);    /* heel back */
+      const midX     = scale(0);      /* midfoot */
+      const throatX  = scale(30);     /* throat/lace area */
+
+      /* ---- Outsole ---- */
+      ctx.beginPath();
+      /* Bottom of sole (ground contact) */
+      ctx.moveTo(heelX, soleThick);
+      /* Heel bottom - flat */
+      ctx.lineTo(heelX + scale(10), soleThick);
+      /* Slight arch */
+      ctx.quadraticCurveTo(midX, soleThick + scale(1), ballX, soleThick);
+      /* Toe area with spring */
+      ctx.quadraticCurveTo(toeX - scale(5), soleThick - toeRise * 0.5, toeX, -toeRise);
+      ctx.stroke();
+
+      /* Top of sole (insole) */
+      ctx.beginPath();
+      ctx.moveTo(heelX, 0);
+      ctx.lineTo(toeX, -toeRise * 0.4);
+      ctx.stroke();
+
+      /* Sole sides (close the shape at toe and heel) */
+      ctx.beginPath();
+      ctx.moveTo(toeX, soleThick - toeRise);
+      ctx.quadraticCurveTo(toeX + scale(3), -toeRise * 0.7, toeX, -toeRise * 0.4);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(heelX, soleThick);
+      ctx.lineTo(heelX, 0);
+      ctx.stroke();
+
+      /* ---- Heel stack (slightly thicker at back) ---- */
+      ctx.beginPath();
+      ctx.moveTo(heelX, soleThick);
+      ctx.lineTo(heelX, soleThick + heelH * 0.1);
+      ctx.stroke();
+
+      /* ---- Upper (the main shoe body) ---- */
+      /* Toe box / vamp - curves up from sole to throat */
+      ctx.beginPath();
+      ctx.moveTo(toeX, -toeRise * 0.4);
+      ctx.quadraticCurveTo(toeX - scale(5), -upperH * 0.6, throatX, -upperH);
+      ctx.stroke();
+
+      /* ---- Tongue ---- */
+      ctx.beginPath();
+      ctx.moveTo(throatX, -upperH);
+      ctx.quadraticCurveTo(throatX - scale(5), -upperH - tongueH * 0.7, throatX - scale(12), -upperH - tongueH);
+      ctx.stroke();
+
+      /* Tongue inner edge (dashed to suggest it goes behind) */
+      ctx.save();
+      ctx.setLineDash([scale(3), scale(3)]);
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.4;
+      ctx.beginPath();
+      ctx.moveTo(throatX - scale(2), -upperH + scale(2));
+      ctx.quadraticCurveTo(throatX - scale(7), -upperH - tongueH * 0.5, throatX - scale(14), -upperH - tongueH + scale(3));
+      ctx.stroke();
+      ctx.restore();
+
+      /* ---- Collar / topline (the critical entry zone) ---- */
+      /* The collar goes from the tongue area over the ankle to the heel */
+      const collarTopY = -collarH;
+
+      /* Collar outer edge — from throat up over ankle down to heel */
+      ctx.beginPath();
+      /* Throat side of collar */
+      ctx.moveTo(throatX - scale(12), -upperH - tongueH);
+      ctx.quadraticCurveTo(
+        ankleX + scale(15), collarTopY - scale(8),
+        ankleX, collarTopY
+      );
+
+      /* ---- Heel notch (V-shaped dip in collar at the back) ---- */
+      const notchDepth = scale(10) * (0.3 + collarGap * 0.7);
+      const notchWidth = scale(12);
+
+      ctx.quadraticCurveTo(
+        ankleX - scale(15), collarTopY - scale(2),
+        heelX + notchWidth, collarTopY
+      );
+      /* The notch itself */
+      ctx.quadraticCurveTo(
+        heelX + notchWidth * 0.5, collarTopY + notchDepth,
+        heelX + scale(2), collarTopY + notchDepth * 0.7
+      );
+      ctx.stroke();
+
+      /* ---- Quarter (rear upper from collar down to heel of sole) ---- */
+      ctx.beginPath();
+      ctx.moveTo(heelX + scale(2), collarTopY + notchDepth * 0.7);
+      ctx.quadraticCurveTo(heelX - scale(2), -heelCupH * 0.5, heelX, 0);
+      ctx.stroke();
+
+      /* ---- Collar gap indicator (subtle opening) ---- */
+      if (collarGap > 0.1) {
+        const gapSize = scale(3) + collarGap * scale(6);
+        ctx.save();
+        ctx.strokeStyle = c.accent;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.3 + collarGap * 0.5;
+        /* Small gap marks near the heel notch */
+        const gapX = heelX + notchWidth * 0.6;
+        const gapY = collarTopY + notchDepth * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(gapX - scale(2), gapY - gapSize * 0.5);
+        ctx.lineTo(gapX, gapY + gapSize * 0.5);
+        ctx.lineTo(gapX + scale(2), gapY - gapSize * 0.5);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      /* ---- Lace holes (small circles on the throat area) ---- */
+      ctx.save();
+      ctx.fillStyle = c.stroke;
+      for (let i = 0; i < 3; i++) {
+        const lx = throatX - scale(3) - i * scale(5);
+        const ly = -upperH - i * scale(8) - scale(2);
+        ctx.beginPath();
+        ctx.arc(lx, ly, scale(1.5), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+
+      /* ---- Anatomy labels (faint, always visible) ---- */
+      ctx.save();
+      ctx.font = `${Math.max(9, scale(10))}px ${getComputedStyle(document.documentElement).getPropertyValue("--font")}`;
+      ctx.fillStyle = c.stroke;
+      ctx.globalAlpha = 0.25;
+      ctx.textAlign = "left";
+
+      /* Collar label */
+      ctx.fillText("collar", ankleX + scale(18), collarTopY - scale(6));
+
+      /* Heel notch label */
+      ctx.textAlign = "right";
+      ctx.fillText("heel notch", heelX - scale(4), collarTopY + notchDepth * 0.5);
+
+      /* Topline label */
+      ctx.textAlign = "center";
+      ctx.fillText("topline", ankleX, collarTopY - scale(14));
+
+      ctx.restore();
+
+      ctx.restore(); /* undo translate + rotate */
+    }
+
+    /* -------------------------------------------------------
+       Draw a single irregular stone polygon
+       ------------------------------------------------------- */
+    function drawStone(x, y, r, rot, sides, c) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(rot);
+      ctx.beginPath();
+      for (let i = 0; i < sides; i++) {
+        const angle = (i / sides) * Math.PI * 2;
+        const jitter = 0.7 + Math.sin(i * 13.7) * 0.3; /* pseudo-random jitter */
+        const px = Math.cos(angle) * r * jitter;
+        const py = Math.sin(angle) * r * jitter;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fillStyle = c.gravel;
+      ctx.fill();
+      ctx.lineWidth = 0.5;
+      ctx.strokeStyle = c.stroke;
+      ctx.globalAlpha = 0.3;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    /* -------------------------------------------------------
+       Main render loop
+       ------------------------------------------------------- */
+    function render(timestamp) {
+      if (lastTimestamp === null) lastTimestamp = timestamp;
+      const dt = (timestamp - lastTimestamp) / 1000;
+      lastTimestamp = timestamp;
+      time += dt;
+
+      const rect = viewport.getBoundingClientRect();
+      const W = rect.width;
+      const H = rect.height;
+      const c = colors();
+
+      /* Clear */
+      ctx.clearRect(0, 0, W, H);
+
+      /* Background */
+      ctx.fillStyle = c.bg;
+      ctx.fillRect(0, 0, W, H);
+
+      /* --- Ground line --- */
+      const groundY = H * 0.72;
+
+      /* Gait phase */
+      const phase = (time % CYCLE_DURATION) / CYCLE_DURATION;
+      const pose = getFootPose(phase);
+
+      /* Horizontal position: shoe stays centered, ground scrolls */
+      /* Ground scroll offset based on time (walking forward) */
+      const walkSpeed = W * 0.15; /* px per second */
+      const groundOffset = (time * walkSpeed) % W;
+
+      /* --- Draw ground surface (hatched texture) --- */
+      ctx.fillStyle = c.ground;
+      ctx.fillRect(0, groundY, W, H - groundY);
+
+      /* Surface stipple / hatching */
+      ctx.save();
+      ctx.strokeStyle = c.stroke;
+      ctx.globalAlpha = 0.06;
+      ctx.lineWidth = 0.5;
+      for (let hx = -groundOffset % 12; hx < W; hx += 12) {
+        ctx.beginPath();
+        ctx.moveTo(hx, groundY + 2);
+        ctx.lineTo(hx + 6, groundY + 8);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      /* Ground line */
+      ctx.beginPath();
+      ctx.moveTo(0, groundY);
+      ctx.lineTo(W, groundY);
+      ctx.strokeStyle = c.stroke;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      /* --- Draw scattered stones on ground --- */
+      ctx.save();
+      for (const stone of groundStones) {
+        /* Scroll stones with ground */
+        let sx = ((stone.x - groundOffset) % (W * 2) + W * 2) % (W * 2) - W * 0.5;
+        if (sx < -10 || sx > W + 10) continue;
+        drawStone(sx, groundY + stone.y, stone.r, stone.rot, stone.sides, c);
+      }
+      ctx.restore();
+
+      /* --- Draw shoe --- */
+      const shoeAnchorX = W * 0.48;
+      const shoeAnchorY = groundY + pose.ankleY;
+
+      drawShoe(shoeAnchorX, shoeAnchorY, pose, c, W);
+
+      /* --- Draw a simplified leg line above the shoe (calf line) --- */
+      ctx.save();
+      ctx.translate(shoeAnchorX, shoeAnchorY);
+      ctx.rotate(pose.footAngle * 0.3); /* leg sways slightly with foot */
+      ctx.beginPath();
+      const S = W / 720;
+      const legStartY = -36 * S;
+      ctx.moveTo(-20 * S, legStartY);
+      ctx.quadraticCurveTo(-16 * S, legStartY - 80 * S, -8 * S, legStartY - 140 * S);
+      ctx.strokeStyle = c.stroke;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      /* Second line for calf width */
+      ctx.beginPath();
+      ctx.moveTo(-6 * S, legStartY);
+      ctx.quadraticCurveTo(-2 * S, legStartY - 80 * S, 2 * S, legStartY - 140 * S);
+      ctx.stroke();
+      ctx.restore();
+
+      /* --- Gait phase label (tiny, bottom-left) --- */
+      ctx.save();
+      ctx.font = `${Math.max(9, 10 * S)}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+      ctx.fillStyle = c.stroke;
+      ctx.globalAlpha = 0.2;
+      ctx.textAlign = "left";
+      const phaseNames = ["heel strike", "foot flat", "midstance", "heel off", "toe off", "swing", "swing", "swing"];
+      const phaseIdx = phase < 0.15 ? 0 : phase < 0.25 ? 1 : phase < 0.40 ? 2 : phase < 0.50 ? 3 : phase < 0.60 ? 4 : 5;
+      ctx.fillText(phaseNames[phaseIdx], 12, H - 10);
+      ctx.restore();
+
+      requestAnimationFrame(render);
+    }
+
+    requestAnimationFrame(render);
+  })();
 
 })();
 </script>
