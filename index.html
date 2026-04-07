@@ -1493,10 +1493,14 @@
 
       drawShoe(pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY, pose, c, W);
 
-      /* --- Ankle screen position (for leg attachment) --- */
-      /* Ankle is at shoe-local (0, 0). Transform: pivot + rotate(ankle − pivot) */
-      const adx = -pivotLocalX;
-      const ady = -pivotLocalY;
+      /* --- Leg attachment at the collar opening --- */
+      /* The leg enters the shoe at the collar, not at the sole.
+         In shoe-local coords the collar opening is at approximately
+         (ankleX, −collarH) = (−20*S, −36*S). */
+      const collarLocalX = sc(-20);  /* ankleX in shoe dimensions */
+      const collarLocalY = sc(-36);  /* −collarH: top of the collar */
+      const adx = collarLocalX - pivotLocalX;
+      const ady = collarLocalY - pivotLocalY;
       const cosA = Math.cos(pose.footAngle);
       const sinA = Math.sin(pose.footAngle);
       const ankleScreenX = pivotScreenX + (adx * cosA - ady * sinA);
@@ -1544,9 +1548,9 @@
       );
       ctx.stroke();
 
-      /* Ankle circle (joint) */
+      /* Ankle circle (joint — sits at the collar opening) */
       ctx.beginPath();
-      ctx.arc(sc(2), sc(-2), sc(5), 0, Math.PI * 2);
+      ctx.arc(0, 0, sc(5.5), 0, Math.PI * 2);
       ctx.stroke();
 
       ctx.restore();
