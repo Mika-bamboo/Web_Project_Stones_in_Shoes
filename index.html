@@ -1441,8 +1441,8 @@
       /* The leg enters the shoe at the collar, not at the sole.
          In shoe-local coords the collar opening is at approximately
          (ankleX, −collarH) = (−20*S, −36*S). */
-      const collarLocalX = sc(-20);  /* ankleX in shoe dimensions */
-      const collarLocalY = sc(-36);  /* −collarH: top of the collar */
+      const collarLocalX = sc(-21);  /* horizontal center of the foot opening */
+      const collarLocalY = sc(-28);  /* vertically centered in the opening, not at the rim */
       const adx = collarLocalX - pivotLocalX;
       const ady = collarLocalY - pivotLocalY;
       const cosA = Math.cos(pose.footAngle);
