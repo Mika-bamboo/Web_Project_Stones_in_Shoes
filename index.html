@@ -1375,21 +1375,20 @@
       const phase = (time % CYCLE_DURATION) / CYCLE_DURATION;
       const pose = getFootPose(phase);
 
-      /* Horizontal position: shoe stays centered, ground scrolls RIGHT (shoe walks left) */
-      const walkSpeed = W * 0.15; /* px per second */
-      const groundOffset = -(time * walkSpeed) % W;
+      /* Ground scrolls LEFT → RIGHT (shoe walks right-to-left) */
+      const walkSpeed = W * 0.12; /* px per second */
+      const groundOffset = (time * walkSpeed);  /* positive = stones drift right */
 
       /* --- Draw ground surface (hatched texture) --- */
       ctx.fillStyle = c.ground;
       ctx.fillRect(0, groundY, W, H - groundY);
 
-      /* Surface stipple / hatching */
       ctx.save();
       ctx.strokeStyle = c.stroke;
       ctx.globalAlpha = 0.06;
       ctx.lineWidth = 0.5;
-      const hatchOff = ((groundOffset % 12) + 12) % 12; /* always positive */
-      for (let hx = -hatchOff; hx < W + 12; hx += 12) {
+      const hatchOff = ((groundOffset % 12) + 12) % 12;
+      for (let hx = -12 + hatchOff; hx < W + 12; hx += 12) {
         ctx.beginPath();
         ctx.moveTo(hx, groundY + 2);
         ctx.lineTo(hx + 6, groundY + 8);
@@ -1405,63 +1404,79 @@
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      /* --- Draw scattered stones on ground --- */
+      /* --- Draw scattered stones on ground (drift right) --- */
       ctx.save();
       for (const stone of groundStones) {
-        /* Scroll stones with ground (ground moves right as shoe walks left) */
         let sx = ((stone.x + groundOffset) % (W * 2) + W * 2) % (W * 2) - W * 0.5;
         if (sx < -10 || sx > W + 10) continue;
         drawStone(sx, groundY + stone.y, stone.r, stone.rot, stone.sides, c);
       }
       ctx.restore();
 
-      /* --- Draw shoe with pivot-based gait --- */
+      /* --- Draw shoe with pivot-based gait + horizontal drift --- */
       const S = W / 460;
       const sc = (v) => v * S;
 
-      /* Shoe-local key positions (pre-mirror, x+ = right toward toe) */
+      /* Shoe-local key positions (pre-mirror, x+ = toward toe) */
       const ballLocalX = sc(40);
       const heelLocalX = sc(-70);
-      const soleTopY   = 0;           /* y=0 = top of sole */
-      const soleBotY   = sc(8);       /* bottom of sole (ground contact) */
+      const soleBotY   = sc(8);
 
-      /* On-screen base position: where the ankle rests when flat */
-      const baseX = W * 0.48;
-      const baseY = groundY;  /* sole bottom sits on ground */
+      /*
+       * Horizontal position model:
+       *   - At heel strike (phase≈0): HEEL is at screen center (W*0.5)
+       *   - During stance (0–0.58): foot is on the ground, so it drifts
+       *     RIGHT with the ground.  Total drift = walkSpeed × stance time.
+       *   - During swing (0.58–1.0): foot is airborne, sweeps back LEFT
+       *     to arrive at center for the next heel strike.
+       *
+       * After mirror, shoe-local heelX (−70) maps to +70*S RIGHT of
+       * the anchor on screen.  So to put heel at center:
+       *   anchor = center − heelScreenOffset = W*0.5 − sc(70)
+       */
+      const stanceEnd  = 0.58;
+      const strideDrift = walkSpeed * CYCLE_DURATION * stanceEnd;
+      const heelCenterX = W * 0.5 - sc(70); /* anchor X that puts heel at center */
 
-      /* Pivot: which point stays fixed on the ground?
-         In shoe-local coords (pre-mirror):
-           ball  → (ballLocalX, soleBotY) — shoe-local x=+40
-           heel  → (heelLocalX, soleBotY) — shoe-local x=-70
-           flat  → ankle at (0, soleBotY)
-         On screen after mirror, shoe-local +x maps to screen -x.
-         So ball (local +40) appears LEFT of ankle on screen.
-         And heel (local -70) appears RIGHT of ankle on screen. */
+      let baseX;
+      if (phase < stanceEnd) {
+        /* Stance: foot drifts right with the ground */
+        const t = phase / stanceEnd;
+        baseX = heelCenterX + t * strideDrift;
+      } else {
+        /* Swing: foot returns left for next heel strike */
+        const t = (phase - stanceEnd) / (1 - stanceEnd);
+        const s = smoothstep(t);
+        baseX = heelCenterX + strideDrift * (1 - s);
+      }
+      const baseY = groundY;
 
+      /* Pivot selection: which point is anchored to the ground? */
       let pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY;
 
       if (pose.pivot === "ball") {
-        /* Ball of foot stays on ground — heel peels up */
+        /* Ball stays on ground — heel peels up */
         pivotLocalX = ballLocalX;
         pivotLocalY = soleBotY;
-        /* Ball screen position: base minus mirrored offset */
-        pivotScreenX = baseX + ballLocalX;  /* +40 in local → after mirror → LEFT, but we add because mirror flips in drawShoe */
+        /* Ball is at screen position: base − ballLocalX (mirror flips +x to left) */
+        pivotScreenX = baseX - ballLocalX;
         pivotScreenY = baseY;
       } else if (pose.pivot === "heel") {
-        /* Heel contacts ground — toe is up */
+        /* Heel on ground — toe lifts to meet it */
         pivotLocalX = heelLocalX;
         pivotLocalY = soleBotY;
-        pivotScreenX = baseX + heelLocalX;
+        /* Heel is at screen position: base − heelLocalX = base + 70*S */
+        pivotScreenX = baseX - heelLocalX;
         pivotScreenY = baseY;
       } else if (pose.pivot === "airborne") {
-        /* Foot is in the air — pivot around ankle (sole top), lifted */
+        /* Foot in the air */
         pivotLocalX = 0;
         pivotLocalY = soleBotY;
-        const maxLift = sc(55); /* max swing height */
+        const maxLift = sc(50);
         pivotScreenX = baseX;
         pivotScreenY = baseY - pose.liftY * maxLift;
       } else {
-        /* Flat — sole bottom at ground, no rotation */
+        /* Flat on ground */
         pivotLocalX = 0;
         pivotLocalY = soleBotY;
         pivotScreenX = baseX;
@@ -1471,32 +1486,26 @@
       drawShoe(pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY, pose, c, W);
 
       /* --- Compute ankle screen position for leg attachment --- */
-      /* Ankle is at shoe-local (0, 0). After drawShoe's transforms:
-         screen = pivot + mirror * rotate(ankle - pivot_local) */
       const dx = 0 - pivotLocalX;
       const dy = 0 - pivotLocalY;
       const cosA = Math.cos(-pose.footAngle);
       const sinA = Math.sin(-pose.footAngle);
       const rotX = dx * cosA - dy * sinA;
       const rotY = dx * sinA + dy * cosA;
-      /* Mirror: screen x = pivot - rotX (because scale(-1,1)) */
       const ankleScreenX = pivotScreenX - rotX;
       const ankleScreenY = pivotScreenY + rotY;
 
-      /* --- Draw a simplified leg/calf line above the shoe --- */
+      /* --- Leg/calf lines --- */
       ctx.save();
       ctx.translate(ankleScreenX, ankleScreenY);
-      /* Leg tilts slightly with foot angle */
-      ctx.rotate(-pose.footAngle * 0.25);
+      ctx.rotate(-pose.footAngle * 0.2);
       ctx.strokeStyle = c.stroke;
       ctx.lineWidth = 1.5;
       const legStartY = sc(-6);
-      /* Front shin line */
       ctx.beginPath();
       ctx.moveTo(sc(4), legStartY);
       ctx.quadraticCurveTo(sc(2), legStartY - sc(60), sc(-2), legStartY - sc(130));
       ctx.stroke();
-      /* Rear calf line */
       ctx.beginPath();
       ctx.moveTo(sc(16), legStartY);
       ctx.quadraticCurveTo(sc(12), legStartY - sc(60), sc(6), legStartY - sc(130));
