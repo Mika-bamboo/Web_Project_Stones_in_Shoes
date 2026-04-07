@@ -1130,19 +1130,18 @@
 
     /* -------------------------------------------------------
        Draw the shoe cross-section (line art).
-       pivotScreenX/Y = the point on the shoe that is anchored
-       (stays fixed). pivotLocalX = that point's x in shoe-local
-       coords (pre-mirror). The shoe rotates around the pivot.
+       Shoe faces RIGHT (toe at +x, heel at -x). Walking left→right.
+       pivotScreenX/Y = screen point that stays fixed (on ground).
+       pivotLocalX/Y  = that point in shoe-local coords.
        ------------------------------------------------------- */
     function drawShoe(pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY, pose, c, W) {
       const { footAngle, collarGap } = pose;
 
       ctx.save();
       ctx.translate(pivotScreenX, pivotScreenY);
-      ctx.scale(-1, 1);  /* Mirror: toe faces left */
-      /* Rotate around the pivot (which is now at origin) */
-      ctx.rotate(-footAngle);
-      /* Offset so shoe draws relative to pivot, not ankle */
+      /* Rotate around the pivot. Positive footAngle = clockwise = heel up */
+      ctx.rotate(footAngle);
+      /* Offset so shoe draws relative to pivot, not its own origin */
       ctx.translate(-pivotLocalX, -pivotLocalY);
 
       const sw = 1.5; /* stroke weight */
@@ -1297,24 +1296,22 @@
       ctx.restore();
 
       /* ---- Anatomy labels (faint, always visible) ---- */
-      /* Counter-mirror so text reads left-to-right despite the shoe flip */
       ctx.save();
-      ctx.scale(-1, 1); /* undo the parent mirror for text only */
       ctx.font = `${Math.max(9, scale(10))}px ${getComputedStyle(document.documentElement).getPropertyValue("--font")}`;
       ctx.fillStyle = c.stroke;
       ctx.globalAlpha = 0.25;
 
-      /* Collar label (positions are negated on X due to counter-mirror) */
-      ctx.textAlign = "right";
-      ctx.fillText("collar", -(ankleX + scale(18)), collarTopY - scale(6));
+      /* Collar label */
+      ctx.textAlign = "left";
+      ctx.fillText("collar", ankleX + scale(18), collarTopY - scale(6));
 
       /* Heel notch label */
-      ctx.textAlign = "left";
-      ctx.fillText("heel notch", -(heelX - scale(4)), collarTopY + notchDepth * 0.5);
+      ctx.textAlign = "right";
+      ctx.fillText("heel notch", heelX - scale(4), collarTopY + notchDepth * 0.5);
 
       /* Topline label */
       ctx.textAlign = "center";
-      ctx.fillText("topline", -ankleX, collarTopY - scale(14));
+      ctx.fillText("topline", ankleX, collarTopY - scale(14));
 
       ctx.restore();
 
@@ -1375,9 +1372,9 @@
       const phase = (time % CYCLE_DURATION) / CYCLE_DURATION;
       const pose = getFootPose(phase);
 
-      /* Ground scrolls LEFT → RIGHT (shoe walks right-to-left) */
+      /* Ground scrolls RIGHT → LEFT (shoe walks left-to-right) */
       const walkSpeed = W * 0.12; /* px per second */
-      const groundOffset = (time * walkSpeed);  /* positive = stones drift right */
+      const groundOffset = time * walkSpeed; /* stones at (x − offset) drift left */
 
       /* --- Draw ground surface (hatched texture) --- */
       ctx.fillStyle = c.ground;
@@ -1391,7 +1388,7 @@
       for (let hx = -12 + hatchOff; hx < W + 12; hx += 12) {
         ctx.beginPath();
         ctx.moveTo(hx, groundY + 2);
-        ctx.lineTo(hx + 6, groundY + 8);
+        ctx.lineTo(hx - 6, groundY + 8);
         ctx.stroke();
       }
       ctx.restore();
@@ -1404,69 +1401,64 @@
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      /* --- Draw scattered stones on ground (drift right) --- */
+      /* --- Draw scattered stones on ground (drift left) --- */
       ctx.save();
       for (const stone of groundStones) {
-        let sx = ((stone.x + groundOffset) % (W * 2) + W * 2) % (W * 2) - W * 0.5;
+        let sx = ((stone.x - groundOffset) % (W * 2) + W * 2) % (W * 2) - W * 0.5;
         if (sx < -10 || sx > W + 10) continue;
         drawStone(sx, groundY + stone.y, stone.r, stone.rot, stone.sides, c);
       }
       ctx.restore();
 
-      /* --- Draw shoe with pivot-based gait + horizontal drift --- */
+      /* --- Draw shoe (faces right, walks left→right) --- */
       const S = W / 460;
       const sc = (v) => v * S;
 
-      /* Shoe-local key positions (pre-mirror, x+ = toward toe) */
+      /* Shoe-local positions: heel at −70, ball at +40, toe at +70 */
       const ballLocalX = sc(40);
       const heelLocalX = sc(-70);
       const soleBotY   = sc(8);
 
       /*
-       * Horizontal position model:
-       *   - At heel strike (phase≈0): HEEL is at screen center (W*0.5)
-       *   - During stance (0–0.58): foot is on the ground, so it drifts
-       *     RIGHT with the ground.  Total drift = walkSpeed × stance time.
-       *   - During swing (0.58–1.0): foot is airborne, sweeps back LEFT
-       *     to arrive at center for the next heel strike.
+       * Horizontal position:
+       *   heel strike (phase≈0): heel at screen center W*0.5
+       *   stance (0–0.58): foot is planted, drifts LEFT with ground
+       *   swing (0.58–1.0): foot airborne, sweeps RIGHT to center
        *
-       * After mirror, shoe-local heelX (−70) maps to +70*S RIGHT of
-       * the anchor on screen.  So to put heel at center:
-       *   anchor = center − heelScreenOffset = W*0.5 − sc(70)
+       * Shoe faces right, so heel is at (anchor + heelLocalX).
+       * For heel at center: anchor = W*0.5 − heelLocalX = W*0.5 + sc(70)
        */
-      const stanceEnd  = 0.58;
+      const stanceEnd   = 0.58;
       const strideDrift = walkSpeed * CYCLE_DURATION * stanceEnd;
-      const heelCenterX = W * 0.5 - sc(70); /* anchor X that puts heel at center */
+      const heelCenterX = W * 0.5 - heelLocalX; /* anchor that puts heel at center */
 
       let baseX;
       if (phase < stanceEnd) {
-        /* Stance: foot drifts right with the ground */
+        /* Stance: foot drifts LEFT with the ground */
         const t = phase / stanceEnd;
-        baseX = heelCenterX + t * strideDrift;
+        baseX = heelCenterX - t * strideDrift;
       } else {
-        /* Swing: foot returns left for next heel strike */
+        /* Swing: foot sweeps RIGHT back to starting position */
         const t = (phase - stanceEnd) / (1 - stanceEnd);
         const s = smoothstep(t);
-        baseX = heelCenterX + strideDrift * (1 - s);
+        baseX = heelCenterX - strideDrift * (1 - s);
       }
       const baseY = groundY;
 
-      /* Pivot selection: which point is anchored to the ground? */
+      /* Pivot: which shoe point stays on the ground? */
       let pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY;
 
       if (pose.pivot === "ball") {
-        /* Ball stays on ground — heel peels up */
+        /* Ball planted — heel peels up */
         pivotLocalX = ballLocalX;
         pivotLocalY = soleBotY;
-        /* Ball is at screen position: base − ballLocalX (mirror flips +x to left) */
-        pivotScreenX = baseX - ballLocalX;
+        pivotScreenX = baseX + ballLocalX; /* ball is RIGHT of anchor */
         pivotScreenY = baseY;
       } else if (pose.pivot === "heel") {
-        /* Heel on ground — toe lifts to meet it */
+        /* Heel contacts ground — toe is up */
         pivotLocalX = heelLocalX;
         pivotLocalY = soleBotY;
-        /* Heel is at screen position: base − heelLocalX = base + 70*S */
-        pivotScreenX = baseX - heelLocalX;
+        pivotScreenX = baseX + heelLocalX; /* heel is LEFT of anchor */
         pivotScreenY = baseY;
       } else if (pose.pivot === "airborne") {
         /* Foot in the air */
@@ -1485,30 +1477,31 @@
 
       drawShoe(pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY, pose, c, W);
 
-      /* --- Compute ankle screen position for leg attachment --- */
-      const dx = 0 - pivotLocalX;
-      const dy = 0 - pivotLocalY;
-      const cosA = Math.cos(-pose.footAngle);
-      const sinA = Math.sin(-pose.footAngle);
-      const rotX = dx * cosA - dy * sinA;
-      const rotY = dx * sinA + dy * cosA;
-      const ankleScreenX = pivotScreenX - rotX;
-      const ankleScreenY = pivotScreenY + rotY;
+      /* --- Ankle screen position (for leg attachment) --- */
+      /* Ankle is at shoe-local (0, 0). Transform: pivot + rotate(ankle − pivot) */
+      const adx = -pivotLocalX;
+      const ady = -pivotLocalY;
+      const cosA = Math.cos(pose.footAngle);
+      const sinA = Math.sin(pose.footAngle);
+      const ankleScreenX = pivotScreenX + (adx * cosA - ady * sinA);
+      const ankleScreenY = pivotScreenY + (adx * sinA + ady * cosA);
 
-      /* --- Leg/calf lines --- */
+      /* --- Leg/calf lines (extend up-left behind the walker) --- */
       ctx.save();
       ctx.translate(ankleScreenX, ankleScreenY);
-      ctx.rotate(-pose.footAngle * 0.2);
+      ctx.rotate(pose.footAngle * 0.2);
       ctx.strokeStyle = c.stroke;
       ctx.lineWidth = 1.5;
       const legStartY = sc(-6);
+      /* Front shin line */
       ctx.beginPath();
-      ctx.moveTo(sc(4), legStartY);
-      ctx.quadraticCurveTo(sc(2), legStartY - sc(60), sc(-2), legStartY - sc(130));
+      ctx.moveTo(sc(-4), legStartY);
+      ctx.quadraticCurveTo(sc(-2), legStartY - sc(60), sc(2), legStartY - sc(130));
       ctx.stroke();
+      /* Rear calf line */
       ctx.beginPath();
-      ctx.moveTo(sc(16), legStartY);
-      ctx.quadraticCurveTo(sc(12), legStartY - sc(60), sc(6), legStartY - sc(130));
+      ctx.moveTo(sc(-16), legStartY);
+      ctx.quadraticCurveTo(sc(-12), legStartY - sc(60), sc(-6), legStartY - sc(130));
       ctx.stroke();
       ctx.restore();
 
