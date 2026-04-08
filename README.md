@@ -31,9 +31,10 @@ Canvas API · Matter.js · Chart.js · GitHub Pages
 
 ## Documentation
 
-- [PROJECT_BLUEPRINT.md](./PROJECT_BLUEPRINT.md) — Full technical blueprint
+- [PROJECT_BLUEPRINT.md](.docs/PROJECT_BLUEPRINT.md) — Full technical blueprint
 - [docs/design-spec.md](./docs/design-spec.md) — UI narrative structure & design decisions
 - [docs/wireframe.html](./docs/wireframe.html) — Interactive wireframe (open in browser)
+- [docs/gait-model-spec.md](./docs/gait-model-spec.md) — Gait animation build spec & reference implementation
 
 ## License
 
