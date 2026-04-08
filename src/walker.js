@@ -40,5 +40,12 @@ export class Walker {
 
     // 3. Solve for rendering
     this.rightJoints = this.right.solve(this.pelvis, this.phase);
+
+    // 4. Clamp: no part of the foot below ground
+    const lowestY = Math.max(this.rightJoints.ankle.y, this.rightJoints.toe.y);
+    if (lowestY > this.groundY) {
+      this.pelvis.y -= lowestY - this.groundY;
+      this.rightJoints = this.right.solve(this.pelvis, this.phase);
+    }
   }
 }
