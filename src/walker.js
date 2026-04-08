@@ -21,7 +21,14 @@ export class Walker {
   }
 
   // Call after setting pelvis position. Bootstraps the constraint from frame 1.
+  // Corrects pelvis.y so the foot sits exactly on the ground.
   init() {
+    this.rightJoints = this.right.solve(this.pelvis, this.phase);
+
+    // Find the lowest point of the foot and raise pelvis so it sits on groundY
+    const lowestY = Math.max(this.rightJoints.ankle.y, this.rightJoints.toe.y);
+    this.pelvis.y -= lowestY - this.groundY;
+
     this.rightJoints = this.right.solve(this.pelvis, this.phase);
     this.plantedAnkleX = this.rightJoints.ankle.x;
     this.plantedGroundOffset = this.groundOffset;
