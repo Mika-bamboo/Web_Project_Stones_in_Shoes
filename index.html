@@ -1021,9 +1021,13 @@
     resize();
     window.addEventListener("resize", resize);
 
-    /* --- Color helpers (respect dark mode) --- */
+    /* --- Color helpers (respect dark mode, cached) --- */
+    let _darkMode = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+      _darkMode = e.matches;
+    });
     function colors() {
-      const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const dark = _darkMode;
       return {
         bg:     dark ? "#111111" : "#ffffff",
         stroke: dark ? "#e4e4e4" : "#1a1a1a",
@@ -1055,12 +1059,12 @@
 
     /* -------------------------------------------------------
        Gait cycle model
-       One cycle = 1.0 (0-0.6 stance, 0.6-1.0 swing)
-       Phase boundaries within cycle:
-         0.00 - 0.15  Heel strike → foot flat
-         0.15 - 0.40  Foot flat (midstance)
-         0.40 - 0.60  Heel off → toe off
-         0.60 - 1.00  Swing phase
+       One cycle = 1.0
+       Phase boundaries:
+         0.00 - 0.10  Heel strike → foot flat
+         0.10 - 0.35  Foot flat / midstance
+         0.35 - 0.58  Heel off → toe off
+         0.58 - 1.00  Swing phase (lift 0.58-0.75, descend 0.75-1.0)
        ------------------------------------------------------- */
     const CYCLE_DURATION = 1.2; /* seconds per full gait cycle */
     let time = 0;
@@ -1334,7 +1338,7 @@
 
       /* Ground scrolls RIGHT → LEFT (shoe walks left-to-right) */
       const walkSpeed = W * 0.12; /* px per second */
-      const groundOffset = time * walkSpeed; /* stones at (x − offset) drift left */
+      const groundOffset = (time * walkSpeed) % (W * 2); /* wrap to avoid float precision loss */
 
       /* --- Draw ground surface (hatched texture) --- */
       ctx.fillStyle = c.ground;
@@ -1506,7 +1510,7 @@
       ctx.globalAlpha = 0.2;
       ctx.textAlign = "left";
       const phaseNames = ["heel strike", "foot flat", "midstance", "heel off", "toe off", "swing"];
-      const phaseIdx = phase < 0.10 ? 0 : phase < 0.20 ? 1 : phase < 0.35 ? 2 : phase < 0.46 ? 3 : phase < 0.58 ? 4 : 5;
+      const phaseIdx = phase < 0.10 ? 0 : phase < 0.22 ? 1 : phase < 0.35 ? 2 : phase < 0.46 ? 3 : phase < 0.58 ? 4 : 5;
       ctx.fillText(phaseNames[phaseIdx], 12, H - 10);
       ctx.restore();
 
