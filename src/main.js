@@ -75,7 +75,12 @@ function frame(now) {
   ctx.translate(-cameraX, 0);
 
   drawGround(ctx, walker.groundY, cameraX, W);
-  drawLeg(ctx, walker.rightJoints);
+
+  // Draw back leg first, front leg second (occlusion by ankle x-position)
+  const legs = [walker.rightJoints, walker.leftJoints];
+  legs.sort((a, b) => a.ankle.x - b.ankle.x);  // back leg (smaller x) first
+  drawLeg(ctx, legs[0]);
+  drawLeg(ctx, legs[1]);
 
   ctx.restore();
 
@@ -85,8 +90,7 @@ function frame(now) {
   ctx.fillStyle = strokeColor;
   ctx.globalAlpha = 0.3;
   ctx.textAlign = 'left';
-  const stanceSwing = walker.phase < 0.6 ? 'stance' : 'swing';
-  ctx.fillText(`phase: ${walker.phase.toFixed(2)}  (${stanceSwing})  pelvis.x: ${walker.pelvis.x.toFixed(0)}`, 12, H - 12);
+  ctx.fillText(`phase: ${walker.phase.toFixed(2)}  pelvis.x: ${walker.pelvis.x.toFixed(0)}`, 12, H - 12);
   ctx.restore();
 }
 
