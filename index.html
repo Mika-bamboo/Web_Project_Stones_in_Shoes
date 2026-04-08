@@ -1121,8 +1121,8 @@
         /* Heel off → toe off — ball stays planted, heel peels up */
         const t = (phase - 0.35) / 0.23;
         const s = smoothstep(t);
-        footAngle = 0.45 * s;
-        legAngle = 0.38 + 0.14 * s;      /* +0.38 → +0.52 (max forward lean) */
+        footAngle = 0.60 * s;            /* steeper heel lift */
+        legAngle = 0.38 + 0.17 * s;      /* +0.38 → +0.55 (max forward lean) */
         collarGap = 0.15 + 0.85 * s;
         pivot = "ball";
       } else {
@@ -1132,15 +1132,15 @@
         if (t < 0.40) {
           /* Lift off + forward swing */
           const s = smoothstep(t / 0.40);
-          footAngle = 0.45 * (1 - s) + (-0.05) * s;
-          legAngle = 0.52 * (1 - s) + 0.10 * s;  /* unwinds from forward lean */
+          footAngle = 0.60 * (1 - s) + (-0.10) * s;  /* unwinds from steep toe-off */
+          legAngle = 0.55 * (1 - s) + 0.05 * s;      /* unwinds from forward lean */
           liftY = s * 1.0;
           collarGap = 1.0 * (1 - s * 0.6);
         } else {
           /* Descend toward next heel strike */
           const s = smoothstep((t - 0.40) / 0.60);
-          footAngle = -0.05 * (1 - s) + (-0.18) * s;
-          legAngle = 0.10 * (1 - s) + (-0.08) * s;  /* returns to slight back-lean */
+          footAngle = -0.10 * (1 - s) + (-0.18) * s;  /* tilts for heel strike */
+          legAngle = 0.05 * (1 - s) + (-0.08) * s;    /* returns to slight back-lean */
           liftY = (1 - s) * 1.0;
           collarGap = 0.4 * (1 - s) + 0.15 * s;
         }
@@ -1451,7 +1451,7 @@
         /* Foot in the air */
         pivotLocalX = 0;
         pivotLocalY = soleBotY;
-        const maxLift = sc(50);
+        const maxLift = sc(85); /* higher swing arc */
         pivotScreenX = baseX;
         pivotScreenY = baseY - pose.liftY * maxLift;
       } else {
