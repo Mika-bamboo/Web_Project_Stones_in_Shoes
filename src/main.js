@@ -1,6 +1,4 @@
-// Step 2: Single right leg with ground constraint.
-// Pelvis moves forward in world space per the spec's ground constraint.
-// Camera follows pelvis so figure stays centered.
+// Step 2: Single right leg with ground constraint + camera-follow.
 
 import { Walker } from './walker.js';
 import { drawLeg, drawGround } from './renderer.js';
@@ -9,40 +7,42 @@ const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
 const viewport = document.getElementById('viewport1');
 
-// --- Responsive sizing (retina-aware) ---
-function resize() {
-  const rect = viewport.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-resize();
-window.addEventListener('resize', resize);
-
 // --- Dark mode detection ---
 let darkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
   darkMode = e.matches;
 });
 
-// --- Deferred init: create walker on first frame when layout is ready ---
+// --- Responsive sizing (retina-aware) — called every frame ---
+function resize() {
+  const rect = viewport.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
 let walker = null;
 let lastTime = null;
 
 function frame(now) {
-  const vrect = viewport.getBoundingClientRect();
-  const W = vrect.width;
-  const H = vrect.height;
+  requestAnimationFrame(frame);
 
-  // Initialize walker on the first frame (layout is guaranteed complete)
+  // Resize canvas every frame to handle layout changes
+  resize();
+
+  const W = canvas.width / (window.devicePixelRatio || 1);
+  const H = canvas.height / (window.devicePixelRatio || 1);
+  if (W === 0 || H === 0) return;
+
+  // Create walker on first valid frame
   if (!walker) {
     const groundY = H * 0.78;
     walker = new Walker(groundY);
-    walker.pelvis = { x: W * 0.5, y: groundY - 170 };
+    walker.pelvis = { x: 0, y: groundY - 170 };
     walker.init();
     lastTime = now;
-    requestAnimationFrame(frame);
     return;
   }
 
@@ -51,10 +51,17 @@ function frame(now) {
 
   walker.step(dt);
 
-  // --- Camera offset: figure stays centered ---
+  // Guard against NaN — reset if detected
+  if (isNaN(walker.pelvis.x) || isNaN(walker.pelvis.y)) {
+    walker.pelvis = { x: 0, y: walker.groundY - 170 };
+    walker.init();
+    return;
+  }
+
+  // Camera offset: figure stays horizontally centered
   const cameraX = walker.pelvis.x - W / 2;
 
-  // Clear (screen space — before transform)
+  // Clear
   ctx.clearRect(0, 0, W, H);
   const bg = darkMode ? '#111111' : '#ffffff';
   ctx.fillStyle = bg;
@@ -63,20 +70,16 @@ function frame(now) {
   const strokeColor = darkMode ? '#e4e4e4' : '#1a1a1a';
   ctx._strokeColor = strokeColor;
 
-  // Apply camera transform — everything below draws in world space
+  // World-space drawing with camera offset
   ctx.save();
   ctx.translate(-cameraX, 0);
 
-  // Ground line with tick marks (world space)
   drawGround(ctx, walker.groundY, cameraX, W);
-
-  // Draw the right leg (world space)
   drawLeg(ctx, walker.rightJoints);
 
   ctx.restore();
-  // --- Back to screen space ---
 
-  // Debug overlay (screen space, not affected by camera)
+  // Debug overlay (screen space)
   ctx.save();
   ctx.font = '12px monospace';
   ctx.fillStyle = strokeColor;
@@ -85,8 +88,6 @@ function frame(now) {
   const stanceSwing = walker.phase < 0.6 ? 'stance' : 'swing';
   ctx.fillText(`phase: ${walker.phase.toFixed(2)}  (${stanceSwing})  pelvis.x: ${walker.pelvis.x.toFixed(0)}`, 12, H - 12);
   ctx.restore();
-
-  requestAnimationFrame(frame);
 }
 
 requestAnimationFrame(frame);
