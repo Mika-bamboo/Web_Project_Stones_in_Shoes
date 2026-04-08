@@ -29,7 +29,7 @@ const SNEAKER_PROFILE = [
 export function drawShoe(ctx, joints, profile) {
   ctx.save();
   ctx.translate(joints.ankle.x, joints.ankle.y);
-  ctx.rotate(joints.footAngle - Math.PI / 2);  // align +x with foot direction
+  ctx.rotate(Math.PI / 2 - joints.footAngle);  // align +x with foot direction
 
   ctx.beginPath();
   ctx.moveTo(profile[0].x, profile[0].y);

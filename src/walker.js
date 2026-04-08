@@ -11,7 +11,7 @@ const SOLE_POINTS = [
 
 // Compute the lowest world-space Y of the shoe sole for a given set of joints.
 function soleLowestY(joints) {
-  const angle = joints.footAngle - Math.PI / 2;
+  const angle = Math.PI / 2 - joints.footAngle;
   const cos = Math.cos(angle), sin = Math.sin(angle);
   let maxY = -Infinity;
   for (const pt of SOLE_POINTS) {
