@@ -24,20 +24,17 @@ export class Walker {
     // 1. Detect heel-strike: transition from swing to stance
     const inStance = this.right.isInStance(this.phase);
     if (inStance && !this.wasInStance) {
-      // Heel just struck. Solve once with current pelvis to find where the foot contacts ground.
+      // Heel just struck. Record the ankle x where the foot planted.
       const joints = this.right.solve(this.pelvis, this.phase);
-      // Plant using the lowest foot point (toe or ankle), not the ankle alone,
-      // so the sole sits on the ground rather than the ankle joint.
-      const footDrop = Math.max(0, joints.toe.y - joints.ankle.y);
-      this.plantedHeel = { x: joints.ankle.x, y: this.groundY - footDrop };
+      this.plantedHeel = { x: joints.ankle.x };
     }
     this.wasInStance = inStance;
 
-    // 2. During stance, correct pelvis so the ankle stays planted
+    // 2. During stance, correct only pelvis X so the ankle stays planted horizontally.
+    //    Pelvis Y stays fixed — vertical position is set at init.
     if (inStance && this.plantedHeel) {
       const trial = this.right.solve(this.pelvis, this.phase);
       this.pelvis.x += this.plantedHeel.x - trial.ankle.x;
-      this.pelvis.y += this.plantedHeel.y - trial.ankle.y;
     }
     // During swing: no constraint — pelvis holds position (causes the "skip")
 
