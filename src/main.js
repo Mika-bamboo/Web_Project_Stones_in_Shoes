@@ -1,7 +1,7 @@
 // Step 2: Single right leg with ground constraint + camera-follow.
 
 import { Walker } from './walker.js';
-import { drawLeg, drawGround } from './renderer.js';
+import { drawLeg, drawGround, drawGroundFill } from './renderer.js';
 
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
@@ -82,7 +82,19 @@ function frame(now) {
   drawLeg(ctx, legs[0]);
   drawLeg(ctx, legs[1]);
 
+  // Ground fill: occludes any geometry below groundY (drawn after figure)
+  drawGroundFill(ctx, walker.groundY, H, cameraX, W, bg);
+
   ctx.restore();
+
+  // --- Debug overlay (uncomment to re-enable) ---
+  // ctx.save();
+  // ctx.font = '12px monospace';
+  // ctx.fillStyle = strokeColor;
+  // ctx.globalAlpha = 0.3;
+  // ctx.textAlign = 'left';
+  // ctx.fillText(`phase: ${walker.phase.toFixed(2)}  pelvis.x: ${walker.pelvis.x.toFixed(0)}`, 12, H - 12);
+  // ctx.restore();
 }
 
 requestAnimationFrame(frame);

@@ -116,3 +116,12 @@ export function drawGround(ctx, groundY, cameraX, viewWidth) {
   }
   ctx.globalAlpha = 1.0;
 }
+
+// Filled rectangle from groundY downward — drawn AFTER the figure
+// to occlude any geometry that dips below the ground line.
+export function drawGroundFill(ctx, groundY, canvasH, cameraX, viewWidth, bgColor) {
+  const left = cameraX;
+  const right = cameraX + viewWidth;
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(left, groundY + 1, right - left, canvasH);
+}
