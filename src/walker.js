@@ -78,13 +78,17 @@ export class Walker {
     const plantedX   = this.plantedX[stanceSide];
 
     if (plantedX !== null) {
-      // X constraint: keep ankle at planted horizontal position
+      // X constraint: keep stance ankle at planted horizontal position
       const trial = stanceLeg.solve(this.pelvis, this.phase);
       this.pelvis.x += plantedX - trial.ankle.x;
 
-      // Y constraint: keep the lowest sole point exactly at groundY
-      const trial2 = stanceLeg.solve(this.pelvis, this.phase);
-      const lowestY = soleLowestY(trial2);
+      // Y constraint: keep the lowest sole of EITHER foot at groundY.
+      // During single stance the stance foot is always lowest (swing is airborne).
+      // During double stance this picks the plantarflexing foot, preventing
+      // the non-selected foot from going below ground.
+      const rJoints = this.right.solve(this.pelvis, this.phase);
+      const lJoints = this.left.solve(this.pelvis, this.phase);
+      const lowestY = Math.max(soleLowestY(rJoints), soleLowestY(lJoints));
       this.pelvis.y += this.groundY - lowestY;
     }
 
