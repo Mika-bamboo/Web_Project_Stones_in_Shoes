@@ -24,9 +24,12 @@ export class Walker {
     // 1. Detect heel-strike: transition from swing to stance
     const inStance = this.right.isInStance(this.phase);
     if (inStance && !this.wasInStance) {
-      // Heel just struck. Solve once with current pelvis to find where ankle lands.
+      // Heel just struck. Solve once with current pelvis to find where the foot contacts ground.
       const joints = this.right.solve(this.pelvis, this.phase);
-      this.plantedHeel = { x: joints.ankle.x, y: this.groundY };
+      // Plant using the lowest foot point (toe or ankle), not the ankle alone,
+      // so the sole sits on the ground rather than the ankle joint.
+      const footDrop = Math.max(0, joints.toe.y - joints.ankle.y);
+      this.plantedHeel = { x: joints.ankle.x, y: this.groundY - footDrop };
     }
     this.wasInStance = inStance;
 
@@ -40,12 +43,5 @@ export class Walker {
 
     // 3. Solve for rendering
     this.rightJoints = this.right.solve(this.pelvis, this.phase);
-
-    // 4. Clamp: no part of the foot below ground
-    const lowestY = Math.max(this.rightJoints.ankle.y, this.rightJoints.toe.y);
-    if (lowestY > this.groundY) {
-      this.pelvis.y -= lowestY - this.groundY;
-      this.rightJoints = this.right.solve(this.pelvis, this.phase);
-    }
   }
 }
