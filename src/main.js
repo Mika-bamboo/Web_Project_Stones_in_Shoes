@@ -83,15 +83,6 @@ function frame(now) {
   drawLeg(ctx, legs[1]);
 
   ctx.restore();
-
-  // Debug overlay (screen space)
-  ctx.save();
-  ctx.font = '12px monospace';
-  ctx.fillStyle = strokeColor;
-  ctx.globalAlpha = 0.3;
-  ctx.textAlign = 'left';
-  ctx.fillText(`phase: ${walker.phase.toFixed(2)}  pelvis.x: ${walker.pelvis.x.toFixed(0)}`, 12, H - 12);
-  ctx.restore();
 }
 
 requestAnimationFrame(frame);

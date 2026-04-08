@@ -2,29 +2,10 @@ import { Leg } from './leg.js';
 
 const ANKLE_HEIGHT = 8;   // pixels above groundY where ankle is planted
 
-// Shoe sole points in foot-local coords (must match renderer's SNEAKER_PROFILE).
-// These are the lowest points of the shoe that must not go below groundY.
-const SOLE_POINTS = [
-  { x: -8, y: 6 },   // heel sole
-  { x: 38, y: 6 },   // toe sole
-];
-
-// Compute the lowest world-space Y of the shoe sole for a given set of joints.
-function soleLowestY(joints) {
-  const angle = Math.PI / 2 - joints.footAngle;
-  const cos = Math.cos(angle), sin = Math.sin(angle);
-  let maxY = -Infinity;
-  for (const pt of SOLE_POINTS) {
-    const worldY = joints.ankle.y + pt.x * sin + pt.y * cos;
-    if (worldY > maxY) maxY = worldY;
-  }
-  return maxY;
-}
-
 export class Walker {
   constructor(groundY) {
-    this.right = new Leg({ thighLength: 90, shankLength: 90, footLength: 35, phaseOffset: 0 });
-    this.left  = new Leg({ thighLength: 90, shankLength: 90, footLength: 35, phaseOffset: 0.5 });
+    this.right = new Leg({ thighLength: 90, shankLength: 90, footLength: 25, phaseOffset: 0 });
+    this.left  = new Leg({ thighLength: 90, shankLength: 90, footLength: 25, phaseOffset: 0.5 });
 
     this.phase = 0;
     this.cadence = 1.0;                  // gait cycles per second
@@ -85,17 +66,5 @@ export class Walker {
     // 3. Solve both legs for rendering
     this.rightJoints = this.right.solve(this.pelvis, this.phase);
     this.leftJoints  = this.left.solve(this.pelvis, this.phase);
-
-    // 4. Clamp: ensure no shoe sole point goes below groundY.
-    //    Transforms the shoe's sole points from foot-local to world space.
-    const lowestY = Math.max(
-      soleLowestY(this.rightJoints),
-      soleLowestY(this.leftJoints),
-    );
-    if (lowestY > this.groundY) {
-      this.pelvis.y -= lowestY - this.groundY;
-      this.rightJoints = this.right.solve(this.pelvis, this.phase);
-      this.leftJoints  = this.left.solve(this.pelvis, this.phase);
-    }
   }
 }

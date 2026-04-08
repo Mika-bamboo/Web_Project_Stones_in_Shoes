@@ -1,29 +1,29 @@
 // Drawing functions for the gait model.
 
 // Sneaker profile in foot-local coordinates.
-// (0, 0) = ankle, (35, 0) = toe tip (+x along foot direction).
+// (0, 0) = ankle, (footLength=25, 0) = toe tip (+x along foot direction).
 // Y axis: negative = up (top of shoe), positive = down (sole).
 const SNEAKER_PROFILE = [
   // Start at heel, sole bottom
-  { x: -8, y: 6 },
+  { x: -6, y: 5 },
   // Sole bottom — flat along the ground
-  { x: 38, y: 6 },
+  { x: 28, y: 5 },
   // Toe box — curves up
-  { x: 40, y: 4 },
-  { x: 40, y: 0 },
-  { x: 38, y: -4 },
+  { x: 29, y: 3 },
+  { x: 29, y: 0 },
+  { x: 27, y: -3 },
   // Upper — runs back toward ankle
-  { x: 28, y: -8 },
-  { x: 18, y: -10 },
+  { x: 20, y: -6 },
+  { x: 13, y: -8 },
   // Throat / collar area
-  { x: 6, y: -10 },
+  { x: 4, y: -8 },
   // Collar top — above ankle
-  { x: -2, y: -10 },
+  { x: -2, y: -8 },
   // Heel counter — back and down
-  { x: -8, y: -8 },
-  { x: -10, y: -2 },
+  { x: -6, y: -6 },
+  { x: -7, y: -2 },
   // Back to heel sole
-  { x: -8, y: 6 },
+  { x: -6, y: 5 },
 ];
 
 export function drawShoe(ctx, joints, profile) {
@@ -42,10 +42,10 @@ export function drawShoe(ctx, joints, profile) {
   ctx.fillStyle = 'transparent';
   ctx.stroke();
 
-  // Sole line (thicker, separates sole from upper)
+  // Sole line (separates sole from upper)
   ctx.beginPath();
-  ctx.moveTo(-8, 3);
-  ctx.lineTo(38, 3);
+  ctx.moveTo(-6, 2);
+  ctx.lineTo(28, 2);
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
