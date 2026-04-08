@@ -1,6 +1,6 @@
-// Step 2: Single right leg with ground constraint.
-// Pelvis slides forward over the planted foot during stance,
-// then "skips" forward when the foot lifts (no second leg yet).
+// Step 2: Single right leg, pelvis fixed at center, ground scrolls like a treadmill.
+// During stance the ground scrolls left so the foot appears planted.
+// During swing the ground holds (single-leg "skip").
 
 import { Walker } from './walker.js';
 import { drawLeg, drawGround } from './renderer.js';
@@ -26,13 +26,13 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
   darkMode = e.matches;
 });
 
-// --- Walker with ground constraint ---
+// --- Walker setup ---
 const rect = viewport.getBoundingClientRect();
 const groundY = rect.height * 0.78;
 const walker = new Walker(groundY);
 
-// Set initial pelvis position (Y will be corrected by ground constraint)
-walker.pelvis = { x: rect.width * 0.3, y: groundY - 170 };
+// Pelvis fixed at center — this never changes
+walker.pelvis = { x: rect.width / 2, y: groundY - 165 };
 walker.init();
 
 let lastTime = performance.now();
@@ -55,24 +55,23 @@ function frame(now) {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // Set stroke color for renderer
   const strokeColor = darkMode ? '#e4e4e4' : '#1a1a1a';
   ctx._strokeColor = strokeColor;
 
-  // Ground line
+  // Ground line (scrolling treadmill)
   drawGround(ctx, walker.groundY, W);
 
   // Draw the right leg
   drawLeg(ctx, walker.rightJoints);
 
-  // Phase label (bottom-left, faint)
+  // Phase label
   ctx.save();
   ctx.font = '12px monospace';
   ctx.fillStyle = strokeColor;
   ctx.globalAlpha = 0.3;
   ctx.textAlign = 'left';
   const stanceSwing = walker.phase < 0.6 ? 'stance' : 'swing';
-  ctx.fillText(`phase: ${walker.phase.toFixed(2)}  (${stanceSwing})  pelvis.x: ${walker.pelvis.x.toFixed(0)}`, 12, H - 12);
+  ctx.fillText(`phase: ${walker.phase.toFixed(2)}  (${stanceSwing})  ground: ${walker.groundOffset.toFixed(0)}`, 12, H - 12);
   ctx.restore();
 
   requestAnimationFrame(frame);
