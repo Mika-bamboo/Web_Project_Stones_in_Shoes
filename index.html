@@ -1069,6 +1069,13 @@
     const CYCLE_DURATION = 1.2; /* seconds per full gait cycle */
     let time = 0;
     let lastTimestamp = null;
+    let paused = false;
+
+    /* --- Click-and-hold to pause animation --- */
+    canvas.addEventListener("mousedown", () => { paused = true; });
+    window.addEventListener("mouseup", () => { paused = false; });
+    canvas.addEventListener("touchstart", (e) => { paused = true; e.preventDefault(); }, { passive: false });
+    window.addEventListener("touchend", () => { paused = false; });
 
     /* Easing: smooth step */
     function smoothstep(t) {
@@ -1338,7 +1345,7 @@
       if (lastTimestamp === null) lastTimestamp = timestamp;
       const dt = (timestamp - lastTimestamp) / 1000;
       lastTimestamp = timestamp;
-      time += dt;
+      if (!paused) time += dt;
 
       const rect = viewport.getBoundingClientRect();
       const W = rect.width;
