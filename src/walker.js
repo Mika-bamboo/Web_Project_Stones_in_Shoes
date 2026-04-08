@@ -1,6 +1,7 @@
 import { Leg } from './leg.js';
 
-const ANKLE_HEIGHT = 8;  // pixels above groundY where ankle is planted
+const ANKLE_HEIGHT = 8;   // pixels above groundY where ankle is planted
+const FOOT_MARGIN = 8;    // visual clearance: half foot tube width (5) + toe dot radius (3)
 
 export class Walker {
   constructor(groundY) {
@@ -53,10 +54,12 @@ export class Walker {
     // 3. Solve for rendering
     this.rightJoints = this.right.solve(this.pelvis, this.phase);
 
-    // 4. Clamp: ensure no part of the foot goes below ground
+    // 4. Clamp: ensure no drawn part of the foot goes below ground.
+    //    Joint positions are centerlines; the tube stroke extends FOOT_MARGIN below.
+    const clampY = this.groundY - FOOT_MARGIN;
     const lowestY = Math.max(this.rightJoints.ankle.y, this.rightJoints.toe.y);
-    if (lowestY > this.groundY) {
-      this.pelvis.y -= lowestY - this.groundY;
+    if (lowestY > clampY) {
+      this.pelvis.y -= lowestY - clampY;
       this.rightJoints = this.right.solve(this.pelvis, this.phase);
     }
   }
