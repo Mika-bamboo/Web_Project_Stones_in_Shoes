@@ -1442,25 +1442,42 @@
       /* Pivot: which shoe point stays on the ground? */
       let pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY;
 
+      /* Front of sole contact = furthest forward ground-touching point.
+         Sole extends to toeX + soleExt = sc(68) in shoe-local coords. */
+      const frontSoleX = sc(65);
+      /* Back of sole = furthest back ground-touching point. */
+      const rearSoleX = sc(-68);
+
       if (pose.pivot === "ball") {
-        /* Ball planted — heel peels up */
-        pivotLocalX = ballLocalX;
+        /* Toe area stays on ground — heel peels up.
+           Pivot at front of sole so the toe doesn't sink below ground. */
+        pivotLocalX = frontSoleX;
         pivotLocalY = soleBotY;
-        pivotScreenX = baseX + ballLocalX; /* ball is RIGHT of anchor */
+        pivotScreenX = baseX + frontSoleX;
         pivotScreenY = baseY;
       } else if (pose.pivot === "heel") {
         /* Heel contacts ground — toe is up */
         pivotLocalX = heelLocalX;
         pivotLocalY = soleBotY;
-        pivotScreenX = baseX + heelLocalX; /* heel is LEFT of anchor */
+        pivotScreenX = baseX + heelLocalX;
         pivotScreenY = baseY;
       } else if (pose.pivot === "airborne") {
-        /* Foot in the air */
+        /* Foot in the air — ensure no part clips below ground.
+           The lowest point depends on footAngle:
+             positive angle → toe dips (front of sole)
+             negative angle → heel dips (back of sole) */
         pivotLocalX = 0;
         pivotLocalY = soleBotY;
-        const maxLift = sc(85); /* higher swing arc */
+        const maxLift = sc(85);
+        const desiredLift = pose.liftY * maxLift;
+
+        const angle = pose.footAngle;
+        const toeDip  = (frontSoleX) * Math.sin(Math.max(0, angle));
+        const heelDip = Math.abs(rearSoleX) * Math.sin(Math.max(0, -angle));
+        const minLift = Math.max(toeDip, heelDip);
+
         pivotScreenX = baseX;
-        pivotScreenY = baseY - pose.liftY * maxLift;
+        pivotScreenY = baseY - Math.max(desiredLift, minLift);
       } else {
         /* Flat on ground */
         pivotLocalX = 0;
