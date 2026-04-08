@@ -37,11 +37,30 @@ export function drawLeg(ctx, joints) {
   drawJointDot(ctx, joints.toe, 3);
 }
 
-export function drawGround(ctx, groundY, width) {
+export function drawGround(ctx, groundY, cameraX, viewWidth) {
+  const strokeColor = ctx._strokeColor || '#000';
+
+  // Ground line spans the visible world range
+  const left = cameraX;
+  const right = cameraX + viewWidth;
+
   ctx.beginPath();
-  ctx.moveTo(0, groundY);
-  ctx.lineTo(width, groundY);
+  ctx.moveTo(left, groundY);
+  ctx.lineTo(right, groundY);
   ctx.lineWidth = 1.5;
-  ctx.strokeStyle = ctx._strokeColor || '#000';
+  ctx.strokeStyle = strokeColor;
   ctx.stroke();
+
+  // Tick marks every 50 world-space pixels
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = strokeColor;
+  ctx.globalAlpha = 0.3;
+  const firstTick = Math.floor(left / 50) * 50;
+  for (let x = firstTick; x <= right; x += 50) {
+    ctx.beginPath();
+    ctx.moveTo(x, groundY);
+    ctx.lineTo(x, groundY + 6);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1.0;
 }

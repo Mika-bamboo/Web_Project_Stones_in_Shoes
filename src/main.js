@@ -1,5 +1,6 @@
 // Step 2: Single right leg with ground constraint.
 // Pelvis moves forward in world space per the spec's ground constraint.
+// Camera follows pelvis so figure stays centered.
 
 import { Walker } from './walker.js';
 import { drawLeg, drawGround } from './renderer.js';
@@ -25,30 +26,36 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
   darkMode = e.matches;
 });
 
-// --- Walker setup ---
-const rect = viewport.getBoundingClientRect();
-const groundY = rect.height * 0.78;
-const walker = new Walker(groundY);
-
-walker.pelvis = { x: rect.width * 0.3, y: groundY - 170 };
-walker.init();
-
-let lastTime = performance.now();
+// --- Deferred init: create walker on first frame when layout is ready ---
+let walker = null;
+let lastTime = null;
 
 function frame(now) {
+  const vrect = viewport.getBoundingClientRect();
+  const W = vrect.width;
+  const H = vrect.height;
+
+  // Initialize walker on the first frame (layout is guaranteed complete)
+  if (!walker) {
+    const groundY = H * 0.78;
+    walker = new Walker(groundY);
+    walker.pelvis = { x: W * 0.5, y: groundY - 170 };
+    walker.init();
+    lastTime = now;
+    requestAnimationFrame(frame);
+    return;
+  }
+
   const dt = Math.min((now - lastTime) / 1000, 1 / 30);
   lastTime = now;
 
   walker.step(dt);
 
-  const vrect = viewport.getBoundingClientRect();
-  const W = vrect.width;
-  const H = vrect.height;
+  // --- Camera offset: figure stays centered ---
+  const cameraX = walker.pelvis.x - W / 2;
 
-  // Clear
+  // Clear (screen space — before transform)
   ctx.clearRect(0, 0, W, H);
-
-  // Background
   const bg = darkMode ? '#111111' : '#ffffff';
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
@@ -56,13 +63,20 @@ function frame(now) {
   const strokeColor = darkMode ? '#e4e4e4' : '#1a1a1a';
   ctx._strokeColor = strokeColor;
 
-  // Ground line
-  drawGround(ctx, walker.groundY, W);
+  // Apply camera transform — everything below draws in world space
+  ctx.save();
+  ctx.translate(-cameraX, 0);
 
-  // Draw the right leg
+  // Ground line with tick marks (world space)
+  drawGround(ctx, walker.groundY, cameraX, W);
+
+  // Draw the right leg (world space)
   drawLeg(ctx, walker.rightJoints);
 
-  // Phase label
+  ctx.restore();
+  // --- Back to screen space ---
+
+  // Debug overlay (screen space, not affected by camera)
   ctx.save();
   ctx.font = '12px monospace';
   ctx.fillStyle = strokeColor;
