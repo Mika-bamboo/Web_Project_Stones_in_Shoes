@@ -1151,6 +1151,7 @@
     /* -------------------------------------------------------
        Draw the shoe cross-section (line art).
        Shoe faces RIGHT (toe at +x, heel at -x). Walking left→right.
+       Geometric illustration style (reference: bold flat sneaker).
        pivotScreenX/Y = screen point that stays fixed (on ground).
        pivotLocalX/Y  = that point in shoe-local coords.
        ------------------------------------------------------- */
@@ -1159,88 +1160,122 @@
 
       ctx.save();
       ctx.translate(pivotScreenX, pivotScreenY);
-      /* Rotate around the pivot. Positive footAngle = clockwise = heel up */
       ctx.rotate(footAngle);
-      /* Offset so shoe draws relative to pivot, not its own origin */
       ctx.translate(-pivotLocalX, -pivotLocalY);
 
-      /* Scale factor */
       const S = W / 460;
       const s = (v) => v * S;
 
-      /* Common stroke settings */
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
+      ctx.strokeStyle = c.stroke;
+      ctx.lineWidth = 2;
 
-      /* ---- Key dimensions ---- */
-      const toeX    = s(70);
-      const ballX   = s(40);
-      const heelX   = s(-70);
-      const ankleX  = s(-20);
-      const throatX = s(30);
-      const soleBotY = s(8);          /* sole bottom (ground contact) */
-      const toeRise  = s(4);          /* toe spring upturn */
-      const upperH   = s(50);         /* upper height at throat */
-      const collarTopY = s(-36);      /* top of collar */
-      const tongueH  = s(28);         /* tongue height above upper */
-      const notchDepth = s(10) * (0.3 + collarGap * 0.7);
-      const notchX   = heelX + s(12); /* where heel notch begins */
+      /* ---- Key coordinates ---- */
+      const heelX     = s(-65);     /* back of shoe */
+      const toeX      = s(65);      /* front of shoe */
+      const toeDivX   = s(18);      /* where toe cap meets the upper body */
+      const throatX   = s(8);       /* throat/lace area */
+      const ankleX    = s(-20);     /* ankle position (center of opening) */
+      const heelNotchX = s(-48);    /* where heel notch ends */
 
-      /* ==== 1. SOLE — closed shape (outsole bottom + insole top) ==== */
+      const soleTopY  = 0;          /* insole / top of sole */
+      const soleBotY  = s(10);      /* bottom of sole (ground) */
+      const collarY   = s(-42);     /* top of collar */
+      const vampY     = s(-28);     /* height where toe cap meets upper */
+      const soleExt   = s(3);       /* sole extends past upper on each side */
+
+      const notchDepth = s(8) * (0.3 + collarGap * 0.7);
+
+      /* ==== 1. SOLE — flat rectangular slab ==== */
       ctx.beginPath();
-      ctx.moveTo(heelX, 0);                                       /* heel, insole level */
-      ctx.lineTo(toeX, -toeRise * 0.4);                           /* insole to toe */
-      ctx.quadraticCurveTo(toeX + s(4), -toeRise * 0.1, toeX + s(3), soleBotY - toeRise);  /* toe cap curve */
-      ctx.quadraticCurveTo(toeX - s(3), soleBotY - toeRise * 0.3, ballX, soleBotY);         /* outsole forward */
-      ctx.quadraticCurveTo(s(0), soleBotY + s(1), heelX, soleBotY);                         /* outsole arch */
+      ctx.moveTo(heelX - soleExt, soleTopY);
+      ctx.lineTo(toeX + soleExt, soleTopY);
+      ctx.lineTo(toeX + soleExt, soleBotY);
+      ctx.lineTo(heelX - soleExt, soleBotY);
       ctx.closePath();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = c.stroke;
       ctx.stroke();
 
-      /* ==== 2. UPPER — single continuous path ==== */
-      /* Toe cap → vamp → throat → tongue → collar → heel notch → quarter → heel */
+      /* ==== 2. UPPER — full outline in one path ==== */
       ctx.beginPath();
 
-      /* Start at toe (insole level), go up along vamp */
-      ctx.moveTo(toeX, -toeRise * 0.4);
-      ctx.quadraticCurveTo(toeX - s(8), -upperH * 0.55, throatX, -upperH);
+      /* Heel — straight up from sole to collar notch */
+      ctx.moveTo(heelX, soleTopY);
+      ctx.lineTo(heelX, collarY + notchDepth);
 
-      /* Tongue — curves up and back from throat */
-      ctx.quadraticCurveTo(throatX - s(6), -upperH - tongueH * 0.7, throatX - s(14), -upperH - tongueH);
-
-      /* Collar — sweeps from tongue over ankle area to heel notch */
+      /* Heel notch — dip then recover to collar level */
       ctx.quadraticCurveTo(
-        ankleX + s(12), collarTopY - s(10),
-        ankleX, collarTopY
-      );
-      ctx.quadraticCurveTo(
-        ankleX - s(15), collarTopY - s(2),
-        notchX, collarTopY
+        heelX + s(5), collarY + notchDepth + s(2),
+        heelNotchX, collarY
       );
 
-      /* Heel notch dip */
+      /* Collar topline — straight across to throat */
+      ctx.lineTo(throatX, collarY);
+
+      /* Throat → vamp — curves down to where toe cap starts */
       ctx.quadraticCurveTo(
-        notchX - s(5), collarTopY + notchDepth,
-        heelX + s(2), collarTopY + notchDepth * 0.6
+        toeDivX, collarY,
+        toeDivX, vampY
       );
 
-      /* Quarter — down from heel notch to heel at insole level */
-      ctx.quadraticCurveTo(heelX - s(1), collarTopY * 0.5, heelX, 0);
+      /* Toe cap — large smooth arc down and around to sole level */
+      ctx.bezierCurveTo(
+        toeDivX, s(-10),          /* control 1: pulls curve down */
+        toeX + s(6), s(-12),      /* control 2: pushes outward at front */
+        toeX + s(2), soleTopY     /* end: front of shoe at sole level */
+      );
 
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = c.stroke;
+      /* Bottom — back along sole top to heel */
+      ctx.lineTo(heelX, soleTopY);
+      ctx.closePath();
       ctx.stroke();
 
-      /* ==== 3. Collar gap indicator ==== */
+      /* ==== 3. Toe cap dividing line ==== */
+      /* Vertical-ish curve separating toe cap from upper body */
+      ctx.beginPath();
+      ctx.moveTo(toeDivX, vampY);
+      ctx.quadraticCurveTo(toeDivX - s(2), s(-12), toeDivX + s(4), soleTopY);
+      ctx.stroke();
+
+      /* ==== 4. Horizontal stitching lines on the upper ==== */
+      ctx.save();
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < 4; i++) {
+        const ly = vampY + s(5) + i * s(5);
+        ctx.beginPath();
+        ctx.moveTo(toeDivX + s(5), ly);
+        ctx.lineTo(toeDivX + s(18), ly);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      /* ==== 5. Heel counter arc ==== */
+      ctx.beginPath();
+      const hcCenterX = heelX + s(18);
+      const hcCenterY = s(-12);
+      ctx.arc(hcCenterX, hcCenterY, s(12), Math.PI * 0.6, Math.PI * 1.85);
+      ctx.stroke();
+
+      /* ==== 6. Lace eyelets (two circles) ==== */
+      ctx.lineWidth = 2;
+      /* Inner eyelet (smaller) */
+      ctx.beginPath();
+      ctx.arc(throatX - s(4), collarY + s(10), s(5), 0, Math.PI * 2);
+      ctx.stroke();
+      /* Outer eyelet (larger, overlapping) */
+      ctx.beginPath();
+      ctx.arc(throatX + s(4), collarY + s(6), s(7), 0, Math.PI * 2);
+      ctx.stroke();
+
+      /* ==== 7. Collar gap indicator ==== */
       if (collarGap > 0.1) {
         ctx.save();
         ctx.strokeStyle = c.accent;
         ctx.lineWidth = 1.5;
         ctx.globalAlpha = 0.3 + collarGap * 0.5;
         const gapSize = s(3) + collarGap * s(5);
-        const gapX = notchX - s(3);
-        const gapY = collarTopY + notchDepth * 0.3;
+        const gapX = heelNotchX - s(5);
+        const gapY = collarY + notchDepth * 0.4;
         ctx.beginPath();
         ctx.moveTo(gapX - s(2), gapY - gapSize * 0.5);
         ctx.lineTo(gapX, gapY + gapSize * 0.5);
@@ -1249,19 +1284,7 @@
         ctx.restore();
       }
 
-      /* ==== 4. Lace details (small circles) ==== */
-      ctx.save();
-      ctx.fillStyle = c.stroke;
-      for (let i = 0; i < 3; i++) {
-        const lx = throatX - s(4) - i * s(5);
-        const ly = -upperH - i * s(7) - s(3);
-        ctx.beginPath();
-        ctx.arc(lx, ly, s(1.5), 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-
-      /* ==== 5. Anatomy labels (faint) ==== */
+      /* ==== 8. Anatomy labels (faint) ==== */
       ctx.save();
       const fontFam = getComputedStyle(document.documentElement).getPropertyValue("--font");
       ctx.font = `${Math.max(9, s(10))}px ${fontFam}`;
@@ -1269,13 +1292,13 @@
       ctx.globalAlpha = 0.22;
 
       ctx.textAlign = "left";
-      ctx.fillText("collar", ankleX + s(18), collarTopY - s(6));
+      ctx.fillText("collar", ankleX + s(20), collarY - s(6));
 
       ctx.textAlign = "right";
-      ctx.fillText("heel notch", heelX - s(4), collarTopY + notchDepth * 0.5);
+      ctx.fillText("heel notch", heelX - s(4), collarY + notchDepth * 0.5);
 
       ctx.textAlign = "center";
-      ctx.fillText("topline", ankleX, collarTopY - s(14));
+      ctx.fillText("topline", s(-18), collarY - s(12));
 
       ctx.restore();
 
@@ -1378,10 +1401,10 @@
       const S = W / 460;
       const sc = (v) => v * S;
 
-      /* Shoe-local positions: heel at −70, ball at +40, toe at +70 */
-      const ballLocalX = sc(40);
-      const heelLocalX = sc(-70);
-      const soleBotY   = sc(8);
+      /* Shoe-local positions: heel at −65, ball at +38, toe at +65 */
+      const ballLocalX = sc(38);
+      const heelLocalX = sc(-65);
+      const soleBotY   = sc(10);
 
       /*
        * Horizontal position:
@@ -1390,7 +1413,7 @@
        *   swing (0.58–1.0): foot airborne, sweeps RIGHT to center
        *
        * Shoe faces right, so heel is at (anchor + heelLocalX).
-       * For heel at center: anchor = W*0.5 − heelLocalX = W*0.5 + sc(70)
+       * For heel at center: anchor = W*0.5 − heelLocalX = W*0.5 + sc(65)
        */
       const stanceEnd   = 0.58;
       const strideDrift = walkSpeed * CYCLE_DURATION * stanceEnd;
@@ -1445,8 +1468,8 @@
       /* The leg enters the shoe at the collar, not at the sole.
          In shoe-local coords the collar opening is at approximately
          (ankleX, −collarH) = (−20*S, −36*S). */
-      const collarLocalX = sc(-21);  /* horizontal center of the foot opening */
-      const collarLocalY = sc(-28);  /* vertically centered in the opening, not at the rim */
+      const collarLocalX = sc(-20);  /* horizontal center of the foot opening */
+      const collarLocalY = sc(-32);  /* vertically centered in the opening */
       const adx = collarLocalX - pivotLocalX;
       const ady = collarLocalY - pivotLocalY;
       const cosA = Math.cos(pose.footAngle);
