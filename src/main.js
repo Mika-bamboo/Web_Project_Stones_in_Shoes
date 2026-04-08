@@ -1,6 +1,5 @@
-// Step 2: Single right leg, pelvis fixed at center, ground scrolls like a treadmill.
-// During stance the ground scrolls left so the foot appears planted.
-// During swing the ground holds (single-leg "skip").
+// Step 2: Single right leg with ground constraint.
+// Pelvis moves forward in world space per the spec's ground constraint.
 
 import { Walker } from './walker.js';
 import { drawLeg, drawGround } from './renderer.js';
@@ -31,8 +30,7 @@ const rect = viewport.getBoundingClientRect();
 const groundY = rect.height * 0.78;
 const walker = new Walker(groundY);
 
-// Pelvis fixed at center — this never changes
-walker.pelvis = { x: rect.width / 2, y: groundY - 165 };
+walker.pelvis = { x: rect.width * 0.3, y: groundY - 170 };
 walker.init();
 
 let lastTime = performance.now();
@@ -58,7 +56,7 @@ function frame(now) {
   const strokeColor = darkMode ? '#e4e4e4' : '#1a1a1a';
   ctx._strokeColor = strokeColor;
 
-  // Ground line (scrolling treadmill)
+  // Ground line
   drawGround(ctx, walker.groundY, W);
 
   // Draw the right leg
@@ -71,7 +69,7 @@ function frame(now) {
   ctx.globalAlpha = 0.3;
   ctx.textAlign = 'left';
   const stanceSwing = walker.phase < 0.6 ? 'stance' : 'swing';
-  ctx.fillText(`phase: ${walker.phase.toFixed(2)}  (${stanceSwing})  ground: ${walker.groundOffset.toFixed(0)}`, 12, H - 12);
+  ctx.fillText(`phase: ${walker.phase.toFixed(2)}  (${stanceSwing})  pelvis.x: ${walker.pelvis.x.toFixed(0)}`, 12, H - 12);
   ctx.restore();
 
   requestAnimationFrame(frame);

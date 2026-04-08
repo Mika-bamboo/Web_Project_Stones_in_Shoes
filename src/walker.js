@@ -1,60 +1,56 @@
 import { Leg } from './leg.js';
 
+const ANKLE_HEIGHT = 8;  // pixels above groundY where ankle is planted
+
 export class Walker {
   constructor(groundY) {
     this.right = new Leg({ thighLength: 90, shankLength: 90, footLength: 35, phaseOffset: 0 });
 
     this.phase = 0;
     this.cadence = 1.0;                  // gait cycles per second
-    this.pelvis = { x: 0, y: 0 };       // fixed position, set by init()
+    this.pelvis = { x: 200, y: 200 };   // corrected each frame by ground constraint
     this.groundY = groundY;
 
-    // Treadmill ground offset — scrolls left during stance
-    this.groundOffset = 0;
+    // Where the foot was planted at its most recent heel-strike
+    this.plantedHeel = null;
 
-    // Ankle x at heel-strike (in pelvis-relative coords) and ground offset at that moment
-    this.plantedAnkleX = null;
-    this.plantedGroundOffset = 0;
-
+    // Track which leg was in stance last frame, to detect heel-strike events
     this.wasInStance = true;
+
     this.rightJoints = null;
   }
 
-  // Call after setting pelvis position. Bootstraps the constraint from frame 1.
-  // Corrects pelvis.y so the foot sits exactly on the ground.
+  // Call after setting pelvis position to bootstrap the constraint from frame 1.
   init() {
-    this.rightJoints = this.right.solve(this.pelvis, this.phase);
+    const joints = this.right.solve(this.pelvis, this.phase);
+    this.plantedHeel = { x: joints.ankle.x, y: this.groundY - ANKLE_HEIGHT };
 
-    // Find the lowest point of the foot and raise pelvis so it sits on groundY
-    const lowestY = Math.max(this.rightJoints.ankle.y, this.rightJoints.toe.y);
-    this.pelvis.y -= lowestY - this.groundY;
-
+    // Correct pelvis so ankle sits at the planted position
+    this.pelvis.x += this.plantedHeel.x - joints.ankle.x;
+    this.pelvis.y += this.plantedHeel.y - joints.ankle.y;
     this.rightJoints = this.right.solve(this.pelvis, this.phase);
-    this.plantedAnkleX = this.rightJoints.ankle.x;
-    this.plantedGroundOffset = this.groundOffset;
   }
 
   step(dt) {
     this.phase = (this.phase + dt * this.cadence) % 1;
 
-    // Solve FK with fixed pelvis
-    this.rightJoints = this.right.solve(this.pelvis, this.phase);
-
     // 1. Detect heel-strike: transition from swing to stance
     const inStance = this.right.isInStance(this.phase);
     if (inStance && !this.wasInStance) {
-      this.plantedAnkleX = this.rightJoints.ankle.x;
-      this.plantedGroundOffset = this.groundOffset;
+      const joints = this.right.solve(this.pelvis, this.phase);
+      this.plantedHeel = { x: joints.ankle.x, y: this.groundY - ANKLE_HEIGHT };
     }
     this.wasInStance = inStance;
 
-    // 2. During stance, scroll the ground so the ankle stays "planted" on it.
-    //    The ankle moves in screen space (FK output), so the ground must shift
-    //    by the same amount to keep the foot stationary relative to the ground.
-    if (inStance && this.plantedAnkleX !== null) {
-      const ankleDrift = this.rightJoints.ankle.x - this.plantedAnkleX;
-      this.groundOffset = this.plantedGroundOffset + ankleDrift;
+    // 2. During stance, correct pelvis so the ankle stays planted
+    if (inStance && this.plantedHeel) {
+      const trial = this.right.solve(this.pelvis, this.phase);
+      this.pelvis.x += this.plantedHeel.x - trial.ankle.x;
+      this.pelvis.y += this.plantedHeel.y - trial.ankle.y;
     }
-    // During swing: ground holds position (single-leg "skip")
+    // During swing: no constraint — pelvis holds position (single-leg "skip")
+
+    // 3. Solve for rendering
+    this.rightJoints = this.right.solve(this.pelvis, this.phase);
   }
 }
