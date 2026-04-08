@@ -1,0 +1,1527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Why Do Stones Always End Up Inside Your Shoes?</title>
+<style>
+  /* ===== Design tokens ===== */
+  :root {
+    --bg: #ffffff;
+    --bg-alt: #f7f7f5;
+    --text: #1a1a1a;
+    --text-secondary: #6b6b6b;
+    --text-tertiary: #999999;
+    --border: rgba(0,0,0,0.10);
+    --border-strong: rgba(0,0,0,0.22);
+    --accent: #D85A30;
+    --accent-light: rgba(216,90,48,0.12);
+    --accent-mid: rgba(216,90,48,0.50);
+    --green: #3b6d11;
+    --green-bg: #eaf3de;
+    --red: #a32d2d;
+    --red-bg: #fcebeb;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111111;
+      --bg-alt: #1a1a1a;
+      --text: #e4e4e4;
+      --text-secondary: #a0a0a0;
+      --text-tertiary: #606060;
+      --border: rgba(255,255,255,0.10);
+      --border-strong: rgba(255,255,255,0.22);
+      --accent-light: rgba(216,90,48,0.18);
+      --green: #7cbf3f;
+      --green-bg: rgba(60,109,17,0.25);
+      --red: #e87070;
+      --red-bg: rgba(163,45,45,0.25);
+    }
+  }
+
+  /* ===== Reset & base ===== */
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--font);
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== Sound toggle (top-right, persistent) ===== */
+  .sound-toggle {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 100;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-strong);
+    background: var(--bg);
+    color: var(--text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .sound-toggle:hover { border-color: var(--accent); color: var(--accent); }
+  .sound-toggle .on { display: none; }
+  .sound-toggle.active .off { display: none; }
+  .sound-toggle.active .on { display: inline; }
+
+  /* ===== Act progress indicator ===== */
+  .progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 99;
+    height: 3px;
+    background: var(--accent);
+    width: 0%;
+    transition: width 0.3s ease-out;
+  }
+
+  /* ===== Act nav dots ===== */
+  .act-nav {
+    position: fixed;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
+  }
+  .act-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-strong);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.25s;
+  }
+  .act-dot.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    transform: scale(1.3);
+  }
+  .act-dot-label {
+    display: none;
+    position: absolute;
+    right: 22px;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: var(--bg);
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  .act-dot:hover .act-dot-label { display: block; }
+
+  @media (max-width: 768px) {
+    .act-nav { display: none; }
+  }
+
+  /* ===== Section / Act layout ===== */
+  .act {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 4rem 1.5rem;
+    max-width: 720px;
+    margin: 0 auto;
+    opacity: 0;
+    transform: translateY(32px);
+    transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+  }
+  .act.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .act-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+
+  .act-title {
+    font-size: clamp(22px, 4vw, 32px);
+    font-weight: 700;
+    line-height: 1.25;
+    margin-bottom: 12px;
+    letter-spacing: -0.01em;
+  }
+
+  .act-desc {
+    font-size: 15px;
+    color: var(--text-secondary);
+    max-width: 560px;
+    margin-bottom: 28px;
+    line-height: 1.7;
+  }
+
+  /* ===== Viewport placeholder (where Canvas will render) ===== */
+  .viewport {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border: 1.5px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--bg-alt);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+
+  .viewport-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    text-align: center;
+    line-height: 1.7;
+  }
+  .viewport-label span {
+    display: block;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    opacity: 0.7;
+  }
+
+  /* Stone counter badge */
+  .stone-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--accent-light);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 16px;
+    border-radius: var(--radius);
+    margin-top: 16px;
+  }
+  .stone-badge::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--accent);
+    transform: rotate(15deg);
+  }
+
+  /* ===== Controls panel ===== */
+  .controls {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 16px 20px;
+    background: var(--bg);
+    margin-bottom: 20px;
+  }
+  .controls-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-tertiary);
+    margin-bottom: 12px;
+  }
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0;
+  }
+  .control-row + .control-row {
+    border-top: 1px solid var(--border);
+    margin-top: 6px;
+    padding-top: 12px;
+  }
+  .control-row label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    min-width: 100px;
+    flex-shrink: 0;
+  }
+  .control-row input[type="range"] {
+    flex: 1;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--border-strong);
+    border-radius: 2px;
+    outline: none;
+  }
+  .control-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--text);
+    border: 2px solid var(--bg);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    cursor: pointer;
+  }
+  .control-row .val {
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--mono);
+    min-width: 40px;
+    text-align: right;
+  }
+
+  /* ===== Shoe selector grid (Act 4) ===== */
+  .shoe-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 480px) {
+    .shoe-grid { grid-template-columns: 1fr; }
+  }
+
+  .shoe-card {
+    border: 1.5px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--bg-alt);
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    position: relative;
+  }
+  .shoe-card:hover {
+    border-color: var(--accent);
+  }
+  .shoe-card.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-light);
+  }
+  .shoe-card-icon {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 8px;
+    color: var(--text-tertiary);
+    font-size: 12px;
+  }
+  .shoe-card-name {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .shoe-card-detail {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+  }
+
+  /* ===== Run button (Act 4) ===== */
+  .btn-run {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 28px;
+    border-radius: var(--radius);
+    border: 1.5px solid var(--text);
+    background: var(--text);
+    color: var(--bg);
+    cursor: pointer;
+    transition: opacity 0.2s;
+    margin-top: 4px;
+  }
+  .btn-run:hover { opacity: 0.85; }
+
+  /* ===== Results / Stats (Act 5) ===== */
+  .chart-placeholder {
+    width: 100%;
+    height: 140px;
+    border: 1.5px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--bg-alt);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 24px;
+    padding: 20px 20px 24px;
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .chart-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .chart-bar-fill {
+    width: 40px;
+    border-radius: 4px 4px 0 0;
+    transition: height 0.4s ease-out;
+  }
+  .chart-bar-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    text-align: center;
+    background: var(--bg);
+  }
+  .stat-val {
+    font-size: 28px;
+    font-weight: 700;
+    font-family: var(--mono);
+    line-height: 1.1;
+  }
+  .stat-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+
+  /* ===== Shoe tabs (Act 6) ===== */
+  .shoe-tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .shoe-tab {
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: var(--radius);
+    border: 1.5px solid var(--border);
+    background: var(--bg);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .shoe-tab:hover { border-color: var(--text-tertiary); }
+  .shoe-tab.active {
+    border-color: var(--text);
+    color: var(--text);
+    background: var(--bg-alt);
+  }
+
+  /* ===== Surface scene cards (Act 6) ===== */
+  .scene-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .scene-card {
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--bg);
+  }
+  .scene-card:hover { border-color: var(--text-tertiary); }
+  .scene-card.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-light);
+  }
+  .scene-card-texture {
+    height: 28px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+  }
+  .scene-card-name {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .scene-card-detail {
+    font-size: 10px;
+    color: var(--text-tertiary);
+  }
+
+  /* ===== Narrative text blocks ===== */
+  .narrative {
+    font-size: 15px;
+    color: var(--text-secondary);
+    line-height: 1.75;
+    max-width: 560px;
+    margin-bottom: 20px;
+  }
+  .narrative strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .narrative .accent {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* ===== Insight callout ===== */
+  .insight {
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    background: var(--accent-light);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin-bottom: 20px;
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* ===== Next button ===== */
+  .act-next {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 8px 20px;
+    border-radius: var(--radius);
+    border: 1.5px solid var(--border-strong);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 8px;
+  }
+  .act-next:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .act-next::after {
+    content: "↓";
+    font-size: 14px;
+  }
+
+  /* ===== Scroll hint (Act 1 only) ===== */
+  .scroll-hint {
+    text-align: center;
+    margin-top: 24px;
+    color: var(--text-tertiary);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    animation: pulse-hint 2s ease-in-out infinite;
+  }
+  .scroll-hint::after {
+    content: "";
+    display: block;
+    width: 1px;
+    height: 24px;
+    background: var(--text-tertiary);
+    margin: 8px auto 0;
+    animation: scroll-line 2s ease-in-out infinite;
+  }
+  @keyframes pulse-hint {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+  @keyframes scroll-line {
+    0% { transform: scaleY(0.4); opacity: 0.3; }
+    50% { transform: scaleY(1); opacity: 1; }
+    100% { transform: scaleY(0.4); opacity: 0.3; }
+  }
+
+  /* ===== Canvas inside viewport ===== */
+  .viewport canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ===== Footer ===== */
+  .site-footer {
+    text-align: center;
+    padding: 3rem 1rem;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    border-top: 1px solid var(--border);
+    max-width: 720px;
+    margin: 0 auto;
+  }
+</style>
+</head>
+<body>
+
+<!-- Progress bar -->
+<div class="progress-bar" id="progressBar"></div>
+
+<!-- Sound toggle -->
+<button class="sound-toggle" id="soundToggle" aria-label="Toggle sound">
+  <span class="off">&#9834;</span>
+  <span class="on">&#9835;</span>
+</button>
+
+<!-- Act nav dots -->
+<nav class="act-nav" id="actNav">
+  <div class="act-dot active" data-act="1"><span class="act-dot-label">The hook</span></div>
+  <div class="act-dot" data-act="2"><span class="act-dot-label">Kick-up</span></div>
+  <div class="act-dot" data-act="3"><span class="act-dot-label">Entry point</span></div>
+  <div class="act-dot" data-act="4"><span class="act-dot-label">The question</span></div>
+  <div class="act-dot" data-act="5"><span class="act-dot-label">The reveal</span></div>
+  <div class="act-dot" data-act="6"><span class="act-dot-label">Sandbox</span></div>
+</nav>
+
+
+<!-- ============================================================ -->
+<!-- ACT 1 — The hook                                             -->
+<!-- ============================================================ -->
+<section class="act" id="act1" data-act="1">
+  <div class="act-label">Act 1</div>
+  <div class="act-title">Why do stones always end up inside your shoes?</div>
+  <div class="act-desc">You're walking on a gravel path. It's inevitable. Scroll to walk.</div>
+
+  <div class="viewport" id="viewport1">
+    <canvas id="canvas1"></canvas>
+  </div>
+
+  <div style="text-align:center;">
+    <div class="stone-badge" id="stoneBadge">
+      <span id="stoneCount">0</span> stones entered your shoe
+    </div>
+  </div>
+
+  <div class="scroll-hint">Scroll to walk</div>
+</section>
+
+
+<!-- ============================================================ -->
+<!-- ACT 2 — Zoom in: the kick-up                                -->
+<!-- ============================================================ -->
+<section class="act" id="act2" data-act="2">
+  <div class="act-label">Act 2 — The kick-up</div>
+  <div class="act-title">It starts when your foot lifts off the ground</div>
+  <div class="act-desc">During toe-off, the front edge of the outsole launches small stones upward along parabolic arcs. Faster walking means higher arcs — and more stones aimed at your shoe opening.</div>
+
+  <div class="viewport" id="viewport2">
+    <div class="viewport-label">
+      Close-up: outsole toe-off moment
+      <span>Dotted parabolic trajectories of kicked-up stones</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="controls-title">Parameters</div>
+    <div class="control-row">
+      <label for="speed2">Walking speed</label>
+      <input type="range" id="speed2" min="1" max="10" value="5">
+      <span class="val" data-for="speed2">5</span>
+    </div>
+    <div class="control-row">
+      <label for="stoneSize2">Stone size</label>
+      <input type="range" id="stoneSize2" min="2" max="8" value="4">
+      <span class="val" data-for="stoneSize2">4 mm</span>
+    </div>
+  </div>
+
+  <div class="insight">Faster walking = higher kick-up arcs = more stones launched toward the collar opening.</div>
+
+  <button class="act-next" data-target="act3">Continue</button>
+</section>
+
+
+<!-- ============================================================ -->
+<!-- ACT 3 — Zoom in: the entry point                            -->
+<!-- ============================================================ -->
+<section class="act" id="act3" data-act="3">
+  <div class="act-label">Act 3 — The entry point</div>
+  <div class="act-title">The collar gap: a door that breathes</div>
+  <div class="act-desc">The padded opening around your ankle — the collar — rhythmically opens and closes with every step. Each cycle creates a momentary gap where stones can slip through.</div>
+
+  <div class="viewport" id="viewport3">
+    <div class="viewport-label">
+      Cross-section: ankle area
+      <span>Collar gap opening &amp; closing with the gait cycle</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="controls-title">Shoe geometry</div>
+    <div class="control-row">
+      <label for="collarHeight">Collar height</label>
+      <input type="range" id="collarHeight" min="1" max="10" value="3">
+      <span class="val" data-for="collarHeight">Low</span>
+    </div>
+    <div class="control-row">
+      <label for="heelNotch">Heel notch width</label>
+      <input type="range" id="heelNotch" min="1" max="10" value="7">
+      <span class="val" data-for="heelNotch">Wide</span>
+    </div>
+  </div>
+
+  <div class="insight">Stones don't teleport inside — they enter through the collar gap, which rhythmically opens and closes with every step.</div>
+
+  <button class="act-next" data-target="act4">Continue</button>
+</section>
+
+
+<!-- ============================================================ -->
+<!-- ACT 4 — The question                                        -->
+<!-- ============================================================ -->
+<section class="act" id="act4" data-act="4">
+  <div class="act-label">Act 4 — The question</div>
+  <div class="act-title">Which shoe traps the most stones?</div>
+  <div class="act-desc">Pick the shoe you think retains the most stones after 100 steps on loose gravel. Then run the simulation to find out.</div>
+
+  <div class="shoe-grid" id="shoeGrid">
+    <div class="shoe-card" data-shoe="sandal">
+      <div class="shoe-card-icon">[ Sandal profile ]</div>
+      <div class="shoe-card-name">Sandal</div>
+      <div class="shoe-card-detail">Open vamp, no collar</div>
+    </div>
+    <div class="shoe-card" data-shoe="sneaker">
+      <div class="shoe-card-icon">[ Sneaker profile ]</div>
+      <div class="shoe-card-name">Low-cut Sneaker</div>
+      <div class="shoe-card-detail">Low collar, heel notch</div>
+    </div>
+    <div class="shoe-card" data-shoe="oxford">
+      <div class="shoe-card-icon">[ Oxford profile ]</div>
+      <div class="shoe-card-name">Oxford</div>
+      <div class="shoe-card-detail">Laced throat, tongue gap</div>
+    </div>
+    <div class="shoe-card" data-shoe="boot">
+      <div class="shoe-card-icon">[ Boot profile ]</div>
+      <div class="shoe-card-name">Hiking Boot</div>
+      <div class="shoe-card-detail">Tall shaft, scree collar</div>
+    </div>
+  </div>
+
+  <div style="text-align:center;">
+    <button class="btn-run" id="runBtn">Run 100 steps</button>
+  </div>
+</section>
+
+
+<!-- ============================================================ -->
+<!-- ACT 5 — The reveal                                          -->
+<!-- ============================================================ -->
+<section class="act" id="act5" data-act="5">
+  <div class="act-label">Act 5 — The reveal</div>
+  <div class="act-title">It's not about letting stones in — it's about trapping them</div>
+
+  <div class="chart-placeholder" id="chart5">
+    <div class="chart-bar">
+      <div class="chart-bar-fill" style="height:85px; background: var(--red);"></div>
+      <div class="chart-bar-label">Sneaker</div>
+    </div>
+    <div class="chart-bar">
+      <div class="chart-bar-fill" style="height:55px; background: var(--accent);"></div>
+      <div class="chart-bar-label">Sandal</div>
+    </div>
+    <div class="chart-bar">
+      <div class="chart-bar-fill" style="height:35px; background: var(--text-tertiary);"></div>
+      <div class="chart-bar-label">Oxford</div>
+    </div>
+    <div class="chart-bar">
+      <div class="chart-bar-fill" style="height:4px; background: var(--green);"></div>
+      <div class="chart-bar-label">Boot</div>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-val" style="color: var(--red);">12</div>
+      <div class="stat-label">Sneaker</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" style="color: var(--accent);">7</div>
+      <div class="stat-label">Sandal</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val">4</div>
+      <div class="stat-label">Oxford</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" style="color: var(--green);">0</div>
+      <div class="stat-label">Boot</div>
+    </div>
+  </div>
+
+  <div class="narrative">
+    <p>Sandals let stones land on your foot easily — but they also fall right back out. <strong>Low-cut sneakers are the real trap.</strong> The collar gap is wide enough for stones to enter during toe-off, but once inside, the enclosed upper keeps them <span class="accent">trapped against your foot</span>.</p>
+    <p style="margin-top:12px;">Boots block entry entirely. The tall shaft and scree collar seal the opening — confirming this is a problem footwear designers already know about.</p>
+  </div>
+
+  <div class="insight">The "worst" shoe isn't the most open one — it's the one that traps stones most effectively.</div>
+
+  <button class="act-next" data-target="act6">Continue to sandbox</button>
+</section>
+
+
+<!-- ============================================================ -->
+<!-- ACT 6 — The sandbox                                         -->
+<!-- ============================================================ -->
+<section class="act" id="act6" data-act="6">
+  <div class="act-label">Act 6 — The sandbox</div>
+  <div class="act-title">Explore freely</div>
+  <div class="act-desc">Every parameter from the story, now under your control. Pick a shoe, choose a surface, adjust conditions, and watch.</div>
+
+  <div class="shoe-tabs" id="shoeTabs6">
+    <button class="shoe-tab active" data-shoe="sneaker">Sneaker</button>
+    <button class="shoe-tab" data-shoe="sandal">Sandal</button>
+    <button class="shoe-tab" data-shoe="oxford">Oxford</button>
+    <button class="shoe-tab" data-shoe="hightop">High-top</button>
+    <button class="shoe-tab" data-shoe="boot">Boot</button>
+  </div>
+
+  <div class="viewport" id="viewport6" style="aspect-ratio: 16/10;">
+    <div class="viewport-label">
+      Full simulation view
+      <span>Walking + stone particles + shoe cross-section + entry mechanisms</span>
+    </div>
+  </div>
+
+  <div class="scene-cards" id="sceneCards">
+    <div class="scene-card active" data-surface="construction">
+      <div class="scene-card-texture"></div>
+      <div class="scene-card-name">Fresh construction</div>
+      <div class="scene-card-detail">Abundant gravel</div>
+    </div>
+    <div class="scene-card" data-surface="gravel-path">
+      <div class="scene-card-texture"></div>
+      <div class="scene-card-name">Park gravel path</div>
+      <div class="scene-card-detail">Moderate gravel</div>
+    </div>
+    <div class="scene-card" data-surface="sidewalk">
+      <div class="scene-card-texture"></div>
+      <div class="scene-card-name">City sidewalk</div>
+      <div class="scene-card-detail">Occasional debris</div>
+    </div>
+    <div class="scene-card" data-surface="marble">
+      <div class="scene-card-texture"></div>
+      <div class="scene-card-name">Marble pavement</div>
+      <div class="scene-card-detail">Near-zero stones</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="controls-title">Simulation parameters</div>
+    <div class="control-row">
+      <label for="speed6">Walking speed</label>
+      <input type="range" id="speed6" min="1" max="10" value="5">
+      <span class="val" data-for="speed6">5</span>
+    </div>
+    <div class="control-row">
+      <label for="density6">Stone density</label>
+      <input type="range" id="density6" min="1" max="10" value="6">
+      <span class="val" data-for="density6">6</span>
+    </div>
+    <div class="control-row">
+      <label for="size6">Stone size</label>
+      <input type="range" id="size6" min="2" max="8" value="4">
+      <span class="val" data-for="size6">4 mm</span>
+    </div>
+  </div>
+
+  <div class="stats-row" id="sandboxStats">
+    <div class="stat-card">
+      <div class="stat-val" id="statSteps">0</div>
+      <div class="stat-label">Steps</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="statStones" style="color: var(--accent);">0</div>
+      <div class="stat-label">Stones in</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="statRate">0%</div>
+      <div class="stat-label">Entry rate</div>
+    </div>
+  </div>
+</section>
+
+
+<footer class="site-footer">
+  <p>Stone-In-Shoe Simulator — an interactive physics explanation</p>
+</footer>
+
+
+<!-- ============================================================ -->
+<!-- JavaScript: Intersection Observer + UI wiring                -->
+<!-- ============================================================ -->
+<script>
+(function () {
+  "use strict";
+
+  /* ---- Intersection Observer: act visibility + nav dots ---- */
+  const acts = document.querySelectorAll(".act");
+  const dots = document.querySelectorAll(".act-dot");
+  let currentAct = 1;
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        /* Fade in on enter */
+        if (entry.isIntersecting) {
+          entry.target.classList.add("visible");
+          const actNum = parseInt(entry.target.dataset.act, 10);
+          if (actNum !== currentAct) {
+            currentAct = actNum;
+            updateNav(actNum);
+          }
+        }
+      });
+    },
+    { threshold: 0.25 }
+  );
+
+  acts.forEach((act) => observer.observe(act));
+
+  function updateNav(actNum) {
+    dots.forEach((dot) => {
+      dot.classList.toggle("active", parseInt(dot.dataset.act, 10) === actNum);
+    });
+    /* Update progress bar */
+    const pct = ((actNum - 1) / (acts.length - 1)) * 100;
+    document.getElementById("progressBar").style.width = pct + "%";
+  }
+
+  /* ---- Nav dot clicks ---- */
+  dots.forEach((dot) => {
+    dot.addEventListener("click", () => {
+      const target = document.getElementById("act" + dot.dataset.act);
+      if (target) target.scrollIntoView({ behavior: "smooth" });
+    });
+  });
+
+  /* ---- Next buttons ---- */
+  document.querySelectorAll(".act-next").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = document.getElementById(btn.dataset.target);
+      if (target) target.scrollIntoView({ behavior: "smooth" });
+    });
+  });
+
+  /* ---- Sound toggle ---- */
+  const soundBtn = document.getElementById("soundToggle");
+  soundBtn.addEventListener("click", () => {
+    soundBtn.classList.toggle("active");
+  });
+
+  /* ---- Slider value display ---- */
+  document.querySelectorAll('input[type="range"]').forEach((slider) => {
+    const display = document.querySelector(`.val[data-for="${slider.id}"]`);
+    if (!display) return;
+    slider.addEventListener("input", () => {
+      let text = slider.value;
+      /* Add units / labels for specific sliders */
+      if (slider.id === "stoneSize2" || slider.id === "size6") text += " mm";
+      if (slider.id === "collarHeight") {
+        const labels = ["","Very low","Low","Low","Med-low","Med","Med","Med-high","High","High","Very high"];
+        text = labels[parseInt(slider.value, 10)] || slider.value;
+      }
+      if (slider.id === "heelNotch") {
+        const labels = ["","Narrow","Narrow","Med-narrow","Med","Med","Med","Med-wide","Wide","Wide","Very wide"];
+        text = labels[parseInt(slider.value, 10)] || slider.value;
+      }
+      display.textContent = text;
+    });
+  });
+
+  /* ---- Shoe card selection (Act 4) ---- */
+  const shoeCards = document.querySelectorAll("#shoeGrid .shoe-card");
+  shoeCards.forEach((card) => {
+    card.addEventListener("click", () => {
+      shoeCards.forEach((c) => c.classList.remove("selected"));
+      card.classList.add("selected");
+    });
+  });
+
+  /* ---- Run button placeholder (Act 4) ---- */
+  document.getElementById("runBtn").addEventListener("click", () => {
+    const selected = document.querySelector("#shoeGrid .shoe-card.selected");
+    if (!selected) {
+      /* Flash all cards briefly to hint selection is needed */
+      shoeCards.forEach((c) => {
+        c.style.borderColor = "var(--accent)";
+        setTimeout(() => { c.style.borderColor = ""; }, 600);
+      });
+      return;
+    }
+    /* Placeholder: scroll to Act 5 reveal */
+    document.getElementById("act5").scrollIntoView({ behavior: "smooth" });
+  });
+
+  /* ---- Shoe tabs (Act 6) ---- */
+  document.querySelectorAll("#shoeTabs6 .shoe-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll("#shoeTabs6 .shoe-tab").forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+    });
+  });
+
+  /* ---- Scene cards (Act 6) ---- */
+  document.querySelectorAll("#sceneCards .scene-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      document.querySelectorAll("#sceneCards .scene-card").forEach((c) => c.classList.remove("active"));
+      card.classList.add("active");
+    });
+  });
+
+  /* ================================================================
+     ACT 1 — Canvas walking animation
+     2D side-view gait cycle with line-art shoe cross-section.
+     Shoe shows: outsole, upper, collar, topline, heel notch, tongue.
+     Loops continuously via requestAnimationFrame.
+     ================================================================ */
+  (function initAct1Canvas() {
+    const canvas = document.getElementById("canvas1");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const viewport = document.getElementById("viewport1");
+
+    /* --- Responsive sizing (retina-aware) --- */
+    function resize() {
+      const rect = viewport.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    /* --- Color helpers (respect dark mode, cached) --- */
+    let _darkMode = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+      _darkMode = e.matches;
+    });
+    function colors() {
+      const dark = _darkMode;
+      return {
+        bg:     dark ? "#111111" : "#ffffff",
+        stroke: dark ? "#e4e4e4" : "#1a1a1a",
+        ground: dark ? "#333333" : "#d4d4d0",
+        gravel: dark ? "#555555" : "#b0b0a8",
+        accent: "#D85A30",
+        faint:  dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+      };
+    }
+
+    /* --- Ground stones (static decorative gravel) --- */
+    const groundStones = [];
+    function generateStones() {
+      groundStones.length = 0;
+      const w = viewport.getBoundingClientRect().width;
+      /* Generate enough stones to tile across 2x width (for seamless scroll) */
+      for (let i = 0; i < 80; i++) {
+        groundStones.push({
+          x: Math.random() * w * 2,
+          y: Math.random() * 8 + 1,           /* 1-9px below ground line */
+          r: Math.random() * 2.5 + 1.5,       /* radius 1.5-4px */
+          rot: Math.random() * Math.PI * 2,
+          sides: Math.floor(Math.random() * 3) + 5, /* 5-7 sided polygon */
+        });
+      }
+    }
+    generateStones();
+    window.addEventListener("resize", generateStones);
+
+    /* -------------------------------------------------------
+       Gait cycle model
+       One cycle = 1.0
+       Phase boundaries:
+         0.00 - 0.10  Heel strike → foot flat
+         0.10 - 0.35  Foot flat / midstance
+         0.35 - 0.58  Heel off → toe off
+         0.58 - 1.00  Swing phase (lift 0.58-0.75, descend 0.75-1.0)
+       ------------------------------------------------------- */
+    const CYCLE_DURATION = 1.2; /* seconds per full gait cycle */
+    let time = 0;
+    let lastTimestamp = null;
+
+    /* Easing: smooth step */
+    function smoothstep(t) {
+      t = Math.max(0, Math.min(1, t));
+      return t * t * (3 - 2 * t);
+    }
+
+    /* Map gait phase (0-1) to foot pose.
+       Shoe faces RIGHT, walking left→right.
+
+       Returns:
+         footAngle — foot rotation (radians, positive = clockwise = heel up)
+         legAngle  — shin/leg tilt from vertical (positive = leaning right/forward)
+         collarGap — 0-1 how open the collar is
+         pivot     — "flat" | "ball" | "airborne" | "heel"
+         liftY     — 0-1 vertical lift during swing
+
+       Leg angle reference (from images):
+         heel strike:  ~−0.08  (leg leans slightly backward)
+         foot flat:    ~+0.05  (nearly vertical, slight forward)
+         midstance:    ~+0.20  (body moving over foot)
+         heel off:     ~+0.38  (leg clearly forward)
+         toe off:      ~+0.52  (leg very forward, max lean)
+         swing:        returns to −0.08 for next strike
+    */
+    function getFootPose(phase) {
+      let footAngle = 0;
+      let legAngle = 0;
+      let collarGap = 0;
+      let pivot = "flat";
+      let liftY = 0;
+
+      if (phase < 0.10) {
+        /* Heel strike — heel touches down, toe is up */
+        const t = phase / 0.10;
+        const s = smoothstep(t);
+        footAngle = -0.18 * (1 - s);
+        legAngle = -0.08 + 0.13 * s;     /* −0.08 → +0.05 */
+        collarGap = 0.15 * (1 - s);
+        pivot = "heel";
+      } else if (phase < 0.35) {
+        /* Foot flat / midstance — body passes over the foot */
+        const t = (phase - 0.10) / 0.25;
+        const s = smoothstep(t);
+        footAngle = 0;
+        legAngle = 0.05 + 0.33 * s;      /* +0.05 → +0.38 (significant forward lean) */
+        collarGap = 0.05;
+        pivot = "flat";
+      } else if (phase < 0.58) {
+        /* Heel off → toe off — ball stays planted, heel peels up */
+        const t = (phase - 0.35) / 0.23;
+        const s = smoothstep(t);
+        footAngle = 0.45 * s;
+        legAngle = 0.38 + 0.14 * s;      /* +0.38 → +0.52 (max forward lean) */
+        collarGap = 0.15 + 0.85 * s;
+        pivot = "ball";
+      } else {
+        /* Swing — foot airborne, leg swings back */
+        const t = (phase - 0.58) / 0.42;
+        pivot = "airborne";
+        if (t < 0.40) {
+          /* Lift off + forward swing */
+          const s = smoothstep(t / 0.40);
+          footAngle = 0.45 * (1 - s) + (-0.05) * s;
+          legAngle = 0.52 * (1 - s) + 0.10 * s;  /* unwinds from forward lean */
+          liftY = s * 1.0;
+          collarGap = 1.0 * (1 - s * 0.6);
+        } else {
+          /* Descend toward next heel strike */
+          const s = smoothstep((t - 0.40) / 0.60);
+          footAngle = -0.05 * (1 - s) + (-0.18) * s;
+          legAngle = 0.10 * (1 - s) + (-0.08) * s;  /* returns to slight back-lean */
+          liftY = (1 - s) * 1.0;
+          collarGap = 0.4 * (1 - s) + 0.15 * s;
+        }
+      }
+      return { footAngle, legAngle, collarGap, pivot, liftY };
+    }
+
+    /* -------------------------------------------------------
+       Draw the shoe cross-section (line art).
+       Shoe faces RIGHT (toe at +x, heel at -x). Walking left→right.
+       pivotScreenX/Y = screen point that stays fixed (on ground).
+       pivotLocalX/Y  = that point in shoe-local coords.
+       ------------------------------------------------------- */
+    function drawShoe(pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY, pose, c, W) {
+      const { footAngle, collarGap } = pose;
+
+      ctx.save();
+      ctx.translate(pivotScreenX, pivotScreenY);
+      /* Rotate around the pivot. Positive footAngle = clockwise = heel up */
+      ctx.rotate(footAngle);
+      /* Offset so shoe draws relative to pivot, not its own origin */
+      ctx.translate(-pivotLocalX, -pivotLocalY);
+
+      /* Scale factor */
+      const S = W / 460;
+      const s = (v) => v * S;
+
+      /* Common stroke settings */
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      /* ---- Key dimensions ---- */
+      const toeX    = s(70);
+      const ballX   = s(40);
+      const heelX   = s(-70);
+      const ankleX  = s(-20);
+      const throatX = s(30);
+      const soleBotY = s(8);          /* sole bottom (ground contact) */
+      const toeRise  = s(4);          /* toe spring upturn */
+      const upperH   = s(50);         /* upper height at throat */
+      const collarTopY = s(-36);      /* top of collar */
+      const tongueH  = s(28);         /* tongue height above upper */
+      const notchDepth = s(10) * (0.3 + collarGap * 0.7);
+      const notchX   = heelX + s(12); /* where heel notch begins */
+
+      /* ==== 1. SOLE — closed shape (outsole bottom + insole top) ==== */
+      ctx.beginPath();
+      ctx.moveTo(heelX, 0);                                       /* heel, insole level */
+      ctx.lineTo(toeX, -toeRise * 0.4);                           /* insole to toe */
+      ctx.quadraticCurveTo(toeX + s(4), -toeRise * 0.1, toeX + s(3), soleBotY - toeRise);  /* toe cap curve */
+      ctx.quadraticCurveTo(toeX - s(3), soleBotY - toeRise * 0.3, ballX, soleBotY);         /* outsole forward */
+      ctx.quadraticCurveTo(s(0), soleBotY + s(1), heelX, soleBotY);                         /* outsole arch */
+      ctx.closePath();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = c.stroke;
+      ctx.stroke();
+
+      /* ==== 2. UPPER — single continuous path ==== */
+      /* Toe cap → vamp → throat → tongue → collar → heel notch → quarter → heel */
+      ctx.beginPath();
+
+      /* Start at toe (insole level), go up along vamp */
+      ctx.moveTo(toeX, -toeRise * 0.4);
+      ctx.quadraticCurveTo(toeX - s(8), -upperH * 0.55, throatX, -upperH);
+
+      /* Tongue — curves up and back from throat */
+      ctx.quadraticCurveTo(throatX - s(6), -upperH - tongueH * 0.7, throatX - s(14), -upperH - tongueH);
+
+      /* Collar — sweeps from tongue over ankle area to heel notch */
+      ctx.quadraticCurveTo(
+        ankleX + s(12), collarTopY - s(10),
+        ankleX, collarTopY
+      );
+      ctx.quadraticCurveTo(
+        ankleX - s(15), collarTopY - s(2),
+        notchX, collarTopY
+      );
+
+      /* Heel notch dip */
+      ctx.quadraticCurveTo(
+        notchX - s(5), collarTopY + notchDepth,
+        heelX + s(2), collarTopY + notchDepth * 0.6
+      );
+
+      /* Quarter — down from heel notch to heel at insole level */
+      ctx.quadraticCurveTo(heelX - s(1), collarTopY * 0.5, heelX, 0);
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = c.stroke;
+      ctx.stroke();
+
+      /* ==== 3. Collar gap indicator ==== */
+      if (collarGap > 0.1) {
+        ctx.save();
+        ctx.strokeStyle = c.accent;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.3 + collarGap * 0.5;
+        const gapSize = s(3) + collarGap * s(5);
+        const gapX = notchX - s(3);
+        const gapY = collarTopY + notchDepth * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(gapX - s(2), gapY - gapSize * 0.5);
+        ctx.lineTo(gapX, gapY + gapSize * 0.5);
+        ctx.lineTo(gapX + s(2), gapY - gapSize * 0.5);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      /* ==== 4. Lace details (small circles) ==== */
+      ctx.save();
+      ctx.fillStyle = c.stroke;
+      for (let i = 0; i < 3; i++) {
+        const lx = throatX - s(4) - i * s(5);
+        const ly = -upperH - i * s(7) - s(3);
+        ctx.beginPath();
+        ctx.arc(lx, ly, s(1.5), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+
+      /* ==== 5. Anatomy labels (faint) ==== */
+      ctx.save();
+      const fontFam = getComputedStyle(document.documentElement).getPropertyValue("--font");
+      ctx.font = `${Math.max(9, s(10))}px ${fontFam}`;
+      ctx.fillStyle = c.stroke;
+      ctx.globalAlpha = 0.22;
+
+      ctx.textAlign = "left";
+      ctx.fillText("collar", ankleX + s(18), collarTopY - s(6));
+
+      ctx.textAlign = "right";
+      ctx.fillText("heel notch", heelX - s(4), collarTopY + notchDepth * 0.5);
+
+      ctx.textAlign = "center";
+      ctx.fillText("topline", ankleX, collarTopY - s(14));
+
+      ctx.restore();
+
+      ctx.restore(); /* undo translate + rotate */
+    }
+
+    /* -------------------------------------------------------
+       Draw a single irregular stone polygon
+       ------------------------------------------------------- */
+    function drawStone(x, y, r, rot, sides, c) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(rot);
+      ctx.beginPath();
+      for (let i = 0; i < sides; i++) {
+        const angle = (i / sides) * Math.PI * 2;
+        const jitter = 0.7 + Math.sin(i * 13.7) * 0.3; /* pseudo-random jitter */
+        const px = Math.cos(angle) * r * jitter;
+        const py = Math.sin(angle) * r * jitter;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fillStyle = c.gravel;
+      ctx.fill();
+      ctx.lineWidth = 0.5;
+      ctx.strokeStyle = c.stroke;
+      ctx.globalAlpha = 0.3;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    /* -------------------------------------------------------
+       Main render loop
+       ------------------------------------------------------- */
+    function render(timestamp) {
+      if (lastTimestamp === null) lastTimestamp = timestamp;
+      const dt = (timestamp - lastTimestamp) / 1000;
+      lastTimestamp = timestamp;
+      time += dt;
+
+      const rect = viewport.getBoundingClientRect();
+      const W = rect.width;
+      const H = rect.height;
+      const c = colors();
+
+      /* Clear */
+      ctx.clearRect(0, 0, W, H);
+
+      /* Background */
+      ctx.fillStyle = c.bg;
+      ctx.fillRect(0, 0, W, H);
+
+      /* --- Ground line --- */
+      const groundY = H * 0.78;
+
+      /* Gait phase */
+      const phase = (time % CYCLE_DURATION) / CYCLE_DURATION;
+      const pose = getFootPose(phase);
+
+      /* Ground scrolls RIGHT → LEFT (shoe walks left-to-right) */
+      const walkSpeed = W * 0.12; /* px per second */
+      const groundOffset = (time * walkSpeed) % (W * 2); /* wrap to avoid float precision loss */
+
+      /* --- Draw ground surface (hatched texture) --- */
+      ctx.fillStyle = c.ground;
+      ctx.fillRect(0, groundY, W, H - groundY);
+
+      ctx.save();
+      ctx.strokeStyle = c.stroke;
+      ctx.globalAlpha = 0.06;
+      ctx.lineWidth = 0.5;
+      const hatchOff = ((groundOffset % 12) + 12) % 12;
+      for (let hx = -12 + hatchOff; hx < W + 12; hx += 12) {
+        ctx.beginPath();
+        ctx.moveTo(hx, groundY + 2);
+        ctx.lineTo(hx - 6, groundY + 8);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      /* Ground line */
+      ctx.beginPath();
+      ctx.moveTo(0, groundY);
+      ctx.lineTo(W, groundY);
+      ctx.strokeStyle = c.stroke;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      /* --- Draw scattered stones on ground (drift left) --- */
+      ctx.save();
+      for (const stone of groundStones) {
+        let sx = ((stone.x - groundOffset) % (W * 2) + W * 2) % (W * 2) - W * 0.5;
+        if (sx < -10 || sx > W + 10) continue;
+        drawStone(sx, groundY + stone.y, stone.r, stone.rot, stone.sides, c);
+      }
+      ctx.restore();
+
+      /* --- Draw shoe (faces right, walks left→right) --- */
+      const S = W / 460;
+      const sc = (v) => v * S;
+
+      /* Shoe-local positions: heel at −70, ball at +40, toe at +70 */
+      const ballLocalX = sc(40);
+      const heelLocalX = sc(-70);
+      const soleBotY   = sc(8);
+
+      /*
+       * Horizontal position:
+       *   heel strike (phase≈0): heel at screen center W*0.5
+       *   stance (0–0.58): foot is planted, drifts LEFT with ground
+       *   swing (0.58–1.0): foot airborne, sweeps RIGHT to center
+       *
+       * Shoe faces right, so heel is at (anchor + heelLocalX).
+       * For heel at center: anchor = W*0.5 − heelLocalX = W*0.5 + sc(70)
+       */
+      const stanceEnd   = 0.58;
+      const strideDrift = walkSpeed * CYCLE_DURATION * stanceEnd;
+      const heelCenterX = W * 0.5 - heelLocalX; /* anchor that puts heel at center */
+
+      let baseX;
+      if (phase < stanceEnd) {
+        /* Stance: foot drifts LEFT with the ground */
+        const t = phase / stanceEnd;
+        baseX = heelCenterX - t * strideDrift;
+      } else {
+        /* Swing: foot sweeps RIGHT back to starting position */
+        const t = (phase - stanceEnd) / (1 - stanceEnd);
+        const s = smoothstep(t);
+        baseX = heelCenterX - strideDrift * (1 - s);
+      }
+      const baseY = groundY;
+
+      /* Pivot: which shoe point stays on the ground? */
+      let pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY;
+
+      if (pose.pivot === "ball") {
+        /* Ball planted — heel peels up */
+        pivotLocalX = ballLocalX;
+        pivotLocalY = soleBotY;
+        pivotScreenX = baseX + ballLocalX; /* ball is RIGHT of anchor */
+        pivotScreenY = baseY;
+      } else if (pose.pivot === "heel") {
+        /* Heel contacts ground — toe is up */
+        pivotLocalX = heelLocalX;
+        pivotLocalY = soleBotY;
+        pivotScreenX = baseX + heelLocalX; /* heel is LEFT of anchor */
+        pivotScreenY = baseY;
+      } else if (pose.pivot === "airborne") {
+        /* Foot in the air */
+        pivotLocalX = 0;
+        pivotLocalY = soleBotY;
+        const maxLift = sc(50);
+        pivotScreenX = baseX;
+        pivotScreenY = baseY - pose.liftY * maxLift;
+      } else {
+        /* Flat on ground */
+        pivotLocalX = 0;
+        pivotLocalY = soleBotY;
+        pivotScreenX = baseX;
+        pivotScreenY = baseY;
+      }
+
+      drawShoe(pivotScreenX, pivotScreenY, pivotLocalX, pivotLocalY, pose, c, W);
+
+      /* --- Leg attachment at the collar opening --- */
+      /* The leg enters the shoe at the collar, not at the sole.
+         In shoe-local coords the collar opening is at approximately
+         (ankleX, −collarH) = (−20*S, −36*S). */
+      const collarLocalX = sc(-21);  /* horizontal center of the foot opening */
+      const collarLocalY = sc(-28);  /* vertically centered in the opening, not at the rim */
+      const adx = collarLocalX - pivotLocalX;
+      const ady = collarLocalY - pivotLocalY;
+      const cosA = Math.cos(pose.footAngle);
+      const sinA = Math.sin(pose.footAngle);
+      const ankleScreenX = pivotScreenX + (adx * cosA - ady * sinA);
+      const ankleScreenY = pivotScreenY + (adx * sinA + ady * cosA);
+
+      /* --- Leg (thick pant-leg shape, tilts with gait) --- */
+      ctx.save();
+      ctx.translate(ankleScreenX, ankleScreenY);
+      /* Leg tilts independently from foot — this is the key motion */
+      ctx.rotate(pose.legAngle);
+
+      ctx.strokeStyle = c.stroke;
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      /* Leg dimensions */
+      const legWidth  = sc(28);   /* width of the pant leg */
+      const legHeight = sc(150);  /* visible length going up */
+      const ankleNarrow = sc(20); /* narrower at ankle */
+      const calfBulge = sc(4);    /* slight calf curve */
+
+      /* The leg is a tapered shape: narrower at ankle, wider at calf/knee
+         Drawn as two side lines + optional fill */
+
+      /* Left edge (shin side — faces right/forward when walking right) */
+      const shinBaseX = -ankleNarrow * 0.3;
+      const shinTopX  = -legWidth * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(shinBaseX, sc(-4));
+      ctx.quadraticCurveTo(
+        shinTopX + calfBulge, -legHeight * 0.5,
+        shinTopX, -legHeight
+      );
+      ctx.stroke();
+
+      /* Right edge (calf side — faces left/backward) */
+      const calfBaseX = ankleNarrow * 0.7;
+      const calfTopX  = legWidth * 0.7;
+      ctx.beginPath();
+      ctx.moveTo(calfBaseX, sc(-4));
+      ctx.quadraticCurveTo(
+        calfTopX + calfBulge, -legHeight * 0.45,
+        calfTopX, -legHeight
+      );
+      ctx.stroke();
+
+      /* Ankle circle (joint — sits at the collar opening) */
+      ctx.beginPath();
+      ctx.arc(0, 0, sc(5.5), 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.restore();
+
+      /* --- Gait phase label (tiny, bottom-left) --- */
+      ctx.save();
+      ctx.font = `${Math.max(9, 10 * (W / 720))}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+      ctx.fillStyle = c.stroke;
+      ctx.globalAlpha = 0.2;
+      ctx.textAlign = "left";
+      const phaseNames = ["heel strike", "foot flat", "midstance", "heel off", "toe off", "swing"];
+      const phaseIdx = phase < 0.10 ? 0 : phase < 0.22 ? 1 : phase < 0.35 ? 2 : phase < 0.46 ? 3 : phase < 0.58 ? 4 : 5;
+      ctx.fillText(phaseNames[phaseIdx], 12, H - 10);
+      ctx.restore();
+
+      requestAnimationFrame(render);
+    }
+
+    requestAnimationFrame(render);
+  })();
+
+})();
+</script>
+
+</body>
+</html>
