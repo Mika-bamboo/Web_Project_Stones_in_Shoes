@@ -1,8 +1,9 @@
-// Step 1: Single right leg, pelvis fixed in space, no ground constraint, no shoe.
-// The leg should flex through a recognizable gait cycle in place.
+// Step 2: Single right leg with ground constraint.
+// Pelvis slides forward over the planted foot during stance,
+// then "skips" forward when the foot lifts (no second leg yet).
 
-import { Leg } from './leg.js';
-import { drawLeg } from './renderer.js';
+import { Walker } from './walker.js';
+import { drawLeg, drawGround } from './renderer.js';
 
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
@@ -25,32 +26,25 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
   darkMode = e.matches;
 });
 
-// --- The single right leg ---
-const rightLeg = new Leg({
-  thighLength: 90,
-  shankLength: 90,
-  footLength: 35,
-  phaseOffset: 0,
-});
+// --- Walker with ground constraint ---
+const rect = viewport.getBoundingClientRect();
+const groundY = rect.height * 0.78;
+const walker = new Walker(groundY);
 
-let phase = 0;
-const cadence = 1.0;  // gait cycles per second
+// Initialize pelvis so the leg starts on screen
+walker.pelvis = { x: rect.width * 0.3, y: groundY - 170 };
+
 let lastTime = performance.now();
 
 function frame(now) {
-  const dt = Math.min((now - lastTime) / 1000, 1 / 30);  // clamp to avoid huge jumps
+  const dt = Math.min((now - lastTime) / 1000, 1 / 30);
   lastTime = now;
 
-  phase = (phase + dt * cadence) % 1;
+  walker.step(dt);
 
-  const rect = viewport.getBoundingClientRect();
-  const W = rect.width;
-  const H = rect.height;
-
-  // Fixed hip position: centered horizontally, upper third vertically
-  const hipPos = { x: W / 2, y: H * 0.25 };
-
-  const joints = rightLeg.solve(hipPos, phase);
+  const vrect = viewport.getBoundingClientRect();
+  const W = vrect.width;
+  const H = vrect.height;
 
   // Clear
   ctx.clearRect(0, 0, W, H);
@@ -64,8 +58,11 @@ function frame(now) {
   const strokeColor = darkMode ? '#e4e4e4' : '#1a1a1a';
   ctx._strokeColor = strokeColor;
 
-  // Draw the leg
-  drawLeg(ctx, joints);
+  // Ground line
+  drawGround(ctx, walker.groundY, W);
+
+  // Draw the right leg
+  drawLeg(ctx, walker.rightJoints);
 
   // Phase label (bottom-left, faint)
   ctx.save();
@@ -73,8 +70,8 @@ function frame(now) {
   ctx.fillStyle = strokeColor;
   ctx.globalAlpha = 0.3;
   ctx.textAlign = 'left';
-  const stanceSwing = phase < 0.6 ? 'stance' : 'swing';
-  ctx.fillText(`phase: ${phase.toFixed(2)}  (${stanceSwing})`, 12, H - 12);
+  const stanceSwing = walker.phase < 0.6 ? 'stance' : 'swing';
+  ctx.fillText(`phase: ${walker.phase.toFixed(2)}  (${stanceSwing})  pelvis.x: ${walker.pelvis.x.toFixed(0)}`, 12, H - 12);
   ctx.restore();
 
   requestAnimationFrame(frame);

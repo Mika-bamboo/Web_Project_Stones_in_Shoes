@@ -1,5 +1,4 @@
 // Drawing functions for the gait model.
-// Step 1: leg tubes only (thigh, shank, foot segments).
 
 export function drawLegTube(ctx, a, b, width = 16) {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -36,4 +35,13 @@ export function drawLeg(ctx, joints) {
   drawJointDot(ctx, joints.knee, 4);
   drawJointDot(ctx, joints.ankle, 4);
   drawJointDot(ctx, joints.toe, 3);
+}
+
+export function drawGround(ctx, groundY, width) {
+  ctx.beginPath();
+  ctx.moveTo(0, groundY);
+  ctx.lineTo(width, groundY);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = ctx._strokeColor || '#000';
+  ctx.stroke();
 }
