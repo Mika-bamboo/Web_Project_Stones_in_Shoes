@@ -31,8 +31,9 @@ const rect = viewport.getBoundingClientRect();
 const groundY = rect.height * 0.78;
 const walker = new Walker(groundY);
 
-// Initialize pelvis so the leg starts on screen
+// Set initial pelvis position (Y will be corrected by ground constraint)
 walker.pelvis = { x: rect.width * 0.3, y: groundY - 170 };
+walker.init();
 
 let lastTime = performance.now();
 

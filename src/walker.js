@@ -18,23 +18,34 @@ export class Walker {
     this.rightJoints = null;
   }
 
+  // Must be called after pelvis is positioned to bootstrap the ground constraint.
+  init() {
+    const joints = this.right.solve(this.pelvis, this.phase);
+    this.plantedHeel = { x: joints.ankle.x, y: this.groundY };
+
+    // Correct pelvis so ankle sits at groundY from the start
+    this.pelvis.x += this.plantedHeel.x - joints.ankle.x;
+    this.pelvis.y += this.plantedHeel.y - joints.ankle.y;
+    this.rightJoints = this.right.solve(this.pelvis, this.phase);
+  }
+
   step(dt) {
     this.phase = (this.phase + dt * this.cadence) % 1;
 
     // 1. Detect heel-strike: transition from swing to stance
     const inStance = this.right.isInStance(this.phase);
     if (inStance && !this.wasInStance) {
-      // Heel just struck. Record the ankle x where the foot planted.
+      // Heel just struck. Solve once with current pelvis to find where ankle lands.
       const joints = this.right.solve(this.pelvis, this.phase);
-      this.plantedHeel = { x: joints.ankle.x };
+      this.plantedHeel = { x: joints.ankle.x, y: this.groundY };
     }
     this.wasInStance = inStance;
 
-    // 2. During stance, correct only pelvis X so the ankle stays planted horizontally.
-    //    Pelvis Y stays fixed — vertical position is set at init.
+    // 2. During stance, correct pelvis so the ankle stays planted
     if (inStance && this.plantedHeel) {
       const trial = this.right.solve(this.pelvis, this.phase);
       this.pelvis.x += this.plantedHeel.x - trial.ankle.x;
+      this.pelvis.y += this.plantedHeel.y - trial.ankle.y;
     }
     // During swing: no constraint — pelvis holds position (causes the "skip")
 
