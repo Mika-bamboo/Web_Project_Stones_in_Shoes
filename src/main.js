@@ -14,16 +14,24 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
 });
 
 // --- Responsive sizing (retina-aware) via ResizeObserver ---
+// W and H are locked after first valid read to prevent CSS transitions
+// (e.g. .act fade-in) from causing camera drift via fluctuating dimensions.
 let W = 0, H = 0;
+let sizeLocked = false;
 function applySize() {
   const rect = viewport.getBoundingClientRect();
   if (rect.width === 0 || rect.height === 0) return;
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(rect.width * dpr);
-  canvas.height = Math.round(rect.height * dpr);
+  const w = rect.width;
+  const h = rect.height;
+  // Only update canvas size on genuine resize (>5px change), not CSS transition noise
+  if (sizeLocked && Math.abs(w - W) < 5 && Math.abs(h - H) < 5) return;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  W = rect.width;
-  H = rect.height;
+  W = w;
+  H = h;
+  sizeLocked = true;
 }
 applySize();
 new ResizeObserver(applySize).observe(viewport);
