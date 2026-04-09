@@ -1,4 +1,4 @@
-// Step 2: Single right leg with ground constraint + camera-follow.
+// Gait animation — camera-follow with ground constraint.
 
 import { Walker } from './walker.js';
 import { drawLeg, drawGround, drawGroundFill } from './renderer.js';
@@ -13,21 +13,20 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
   darkMode = e.matches;
 });
 
-// --- Responsive sizing (retina-aware) — only resizes when dimensions change ---
-let lastW = 0, lastH = 0;
-function resize() {
+// --- Responsive sizing (retina-aware) via ResizeObserver ---
+let W = 0, H = 0;
+function applySize() {
   const rect = viewport.getBoundingClientRect();
   if (rect.width === 0 || rect.height === 0) return;
   const dpr = window.devicePixelRatio || 1;
-  const w = Math.round(rect.width * dpr);
-  const h = Math.round(rect.height * dpr);
-  if (w === lastW && h === lastH) return;
-  lastW = w;
-  lastH = h;
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  W = rect.width;
+  H = rect.height;
 }
+applySize();
+new ResizeObserver(applySize).observe(viewport);
 
 let walker = null;
 let lastTime = null;
@@ -35,11 +34,6 @@ let lastTime = null;
 function frame(now) {
   requestAnimationFrame(frame);
 
-  // Resize canvas every frame to handle layout changes
-  resize();
-
-  const W = canvas.width / (window.devicePixelRatio || 1);
-  const H = canvas.height / (window.devicePixelRatio || 1);
   if (W === 0 || H === 0) return;
 
   // Create walker on first valid frame
@@ -64,7 +58,7 @@ function frame(now) {
     return;
   }
 
-  // Camera offset: figure stays horizontally centered
+  // Camera offset: figure stays horizontally centered (no lerp, exact)
   const cameraX = walker.pelvis.x - W / 2;
 
   // Clear
@@ -84,7 +78,7 @@ function frame(now) {
 
   // Draw back leg first, front leg second (occlusion by ankle x-position)
   const legs = [walker.rightJoints, walker.leftJoints];
-  legs.sort((a, b) => a.ankle.x - b.ankle.x);  // back leg (smaller x) first
+  legs.sort((a, b) => a.ankle.x - b.ankle.x);
   drawLeg(ctx, legs[0]);
   drawLeg(ctx, legs[1]);
 

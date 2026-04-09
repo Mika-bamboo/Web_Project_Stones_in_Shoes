@@ -78,13 +78,16 @@ export class Walker {
     const plantedX   = this.plantedX[stanceSide];
 
     if (plantedX !== null) {
-      // X constraint: keep stance ankle at planted horizontal position
+      // Single trial solve, then correct both X and Y
       const trial = stanceLeg.solve(this.pelvis, this.phase);
+
+      // X constraint: keep stance ankle at planted horizontal position
       this.pelvis.x += plantedX - trial.ankle.x;
 
-      // Y constraint: keep the stance foot's lowest sole point at groundY
-      const trial2 = stanceLeg.solve(this.pelvis, this.phase);
-      const lowestY = soleLowestY(trial2);
+      // Y constraint: keep the stance foot's lowest sole point at groundY.
+      // Since FK Y positions shift linearly with pelvis.y, we can reuse the
+      // trial's footAngle (unchanged by X correction) to compute sole offset.
+      const lowestY = soleLowestY(trial);
       this.pelvis.y += this.groundY - lowestY;
     }
 
