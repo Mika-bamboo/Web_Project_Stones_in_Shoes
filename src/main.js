@@ -13,13 +13,19 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
   darkMode = e.matches;
 });
 
-// --- Responsive sizing (retina-aware) — called every frame ---
+// --- Responsive sizing (retina-aware) — only resizes when dimensions change ---
+let lastW = 0, lastH = 0;
 function resize() {
   const rect = viewport.getBoundingClientRect();
   if (rect.width === 0 || rect.height === 0) return;
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
+  const w = Math.round(rect.width * dpr);
+  const h = Math.round(rect.height * dpr);
+  if (w === lastW && h === lastH) return;
+  lastW = w;
+  lastH = h;
+  canvas.width = w;
+  canvas.height = h;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 

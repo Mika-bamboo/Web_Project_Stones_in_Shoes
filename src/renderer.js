@@ -103,7 +103,7 @@ export function drawGround(ctx, groundY, cameraX, viewWidth) {
   ctx.strokeStyle = strokeColor;
   ctx.stroke();
 
-  // Tick marks every 50 world-space pixels
+  // Tick marks every 50 world-space pixels (drawn upward so ground fill doesn't cover them)
   ctx.lineWidth = 1;
   ctx.strokeStyle = strokeColor;
   ctx.globalAlpha = 0.3;
@@ -111,7 +111,7 @@ export function drawGround(ctx, groundY, cameraX, viewWidth) {
   for (let x = firstTick; x <= right; x += 50) {
     ctx.beginPath();
     ctx.moveTo(x, groundY);
-    ctx.lineTo(x, groundY + 6);
+    ctx.lineTo(x, groundY - 6);
     ctx.stroke();
   }
   ctx.globalAlpha = 1.0;
