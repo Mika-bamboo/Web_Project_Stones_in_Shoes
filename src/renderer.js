@@ -1,29 +1,29 @@
 // Drawing functions for the gait model.
 
 // Sneaker profile in foot-local coordinates.
-// (0, 0) = ankle, (footLength=25, 0) = toe tip (+x along foot direction).
+// (0, 0) = ankle, (35, 0) = toe tip (+x along foot direction).
 // Y axis: negative = up (top of shoe), positive = down (sole).
 const SNEAKER_PROFILE = [
   // Start at heel, sole bottom
-  { x: -6, y: 5 },
+  { x: -8, y: 6 },
   // Sole bottom — flat along the ground
-  { x: 28, y: 5 },
+  { x: 38, y: 6 },
   // Toe box — curves up
-  { x: 29, y: 3 },
-  { x: 29, y: 0 },
-  { x: 27, y: -3 },
+  { x: 40, y: 4 },
+  { x: 40, y: 0 },
+  { x: 38, y: -4 },
   // Upper — runs back toward ankle
-  { x: 20, y: -6 },
-  { x: 13, y: -8 },
+  { x: 28, y: -8 },
+  { x: 18, y: -10 },
   // Throat / collar area
-  { x: 4, y: -8 },
+  { x: 6, y: -10 },
   // Collar top — above ankle
-  { x: -2, y: -8 },
+  { x: -2, y: -10 },
   // Heel counter — back and down
-  { x: -6, y: -6 },
-  { x: -7, y: -2 },
+  { x: -8, y: -8 },
+  { x: -10, y: -2 },
   // Back to heel sole
-  { x: -6, y: 5 },
+  { x: -8, y: 6 },
 ];
 
 export function drawShoe(ctx, joints, profile) {
@@ -42,10 +42,10 @@ export function drawShoe(ctx, joints, profile) {
   ctx.fillStyle = 'transparent';
   ctx.stroke();
 
-  // Sole line (separates sole from upper)
+  // Sole line (thicker, separates sole from upper)
   ctx.beginPath();
-  ctx.moveTo(-6, 2);
-  ctx.lineTo(28, 2);
+  ctx.moveTo(-8, 3);
+  ctx.lineTo(38, 3);
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
@@ -103,7 +103,7 @@ export function drawGround(ctx, groundY, cameraX, viewWidth) {
   ctx.strokeStyle = strokeColor;
   ctx.stroke();
 
-  // Tick marks every 50 world-space pixels (drawn upward so ground fill doesn't cover them)
+  // Tick marks every 50 world-space pixels
   ctx.lineWidth = 1;
   ctx.strokeStyle = strokeColor;
   ctx.globalAlpha = 0.3;
@@ -111,43 +111,7 @@ export function drawGround(ctx, groundY, cameraX, viewWidth) {
   for (let x = firstTick; x <= right; x += 50) {
     ctx.beginPath();
     ctx.moveTo(x, groundY);
-    ctx.lineTo(x, groundY - 6);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1.0;
-}
-
-// Clear below-ground area to transparent — CSS viewport background shows through.
-// Drawn AFTER the figure to occlude any geometry that dips below the ground line.
-// Then redraws the ground line and tick marks on top.
-export function drawGroundFill(ctx, groundY, canvasH, cameraX, viewWidth) {
-  const left = cameraX;
-  const right = cameraX + viewWidth;
-
-  // Clear to transparent — viewport CSS background shows through
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);  // reset to pixel coords for clearRect
-  const dpr = window.devicePixelRatio || 1;
-  ctx.clearRect(0, groundY * dpr, ctx.canvas.width, canvasH * dpr);
-  ctx.restore();
-
-  // Redraw ground line on top
-  const strokeColor = ctx._strokeColor || '#000';
-  ctx.beginPath();
-  ctx.moveTo(left, groundY);
-  ctx.lineTo(right, groundY);
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = strokeColor;
-  ctx.stroke();
-
-  // Redraw tick marks on top
-  ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.3;
-  const firstTick = Math.floor(left / 50) * 50;
-  for (let x = firstTick; x <= right; x += 50) {
-    ctx.beginPath();
-    ctx.moveTo(x, groundY);
-    ctx.lineTo(x, groundY - 6);
+    ctx.lineTo(x, groundY + 6);
     ctx.stroke();
   }
   ctx.globalAlpha = 1.0;

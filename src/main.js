@@ -1,7 +1,7 @@
-// Gait animation — camera-follow with ground constraint.
+// Step 2: Single right leg with ground constraint + camera-follow.
 
 import { Walker } from './walker.js';
-import { drawLeg, drawGround, drawGroundFill } from './renderer.js';
+import { drawLeg, drawGround } from './renderer.js';
 
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
@@ -61,9 +61,9 @@ function frame(now) {
   // Camera offset: figure stays horizontally centered
   const cameraX = walker.pelvis.x - W / 2;
 
-  // Clear — use viewport background color (--bg-alt) so fill matches
+  // Clear
   ctx.clearRect(0, 0, W, H);
-  const bg = darkMode ? '#1a1a1a' : '#f7f7f5';
+  const bg = darkMode ? '#111111' : '#ffffff';
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
@@ -78,23 +78,20 @@ function frame(now) {
 
   // Draw back leg first, front leg second (occlusion by ankle x-position)
   const legs = [walker.rightJoints, walker.leftJoints];
-  legs.sort((a, b) => a.ankle.x - b.ankle.x);
+  legs.sort((a, b) => a.ankle.x - b.ankle.x);  // back leg (smaller x) first
   drawLeg(ctx, legs[0]);
   drawLeg(ctx, legs[1]);
 
-  // Ground fill: clears below-ground area to transparent (CSS bg shows through)
-  drawGroundFill(ctx, walker.groundY, H, cameraX, W);
-
   ctx.restore();
 
-  // --- Debug overlay (uncomment to re-enable) ---
-  // ctx.save();
-  // ctx.font = '12px monospace';
-  // ctx.fillStyle = strokeColor;
-  // ctx.globalAlpha = 0.3;
-  // ctx.textAlign = 'left';
-  // ctx.fillText(`phase: ${walker.phase.toFixed(2)}  pelvis.x: ${walker.pelvis.x.toFixed(0)}`, 12, H - 12);
-  // ctx.restore();
+  // Debug overlay (screen space)
+  ctx.save();
+  ctx.font = '12px monospace';
+  ctx.fillStyle = strokeColor;
+  ctx.globalAlpha = 0.3;
+  ctx.textAlign = 'left';
+  ctx.fillText(`phase: ${walker.phase.toFixed(2)}  pelvis.x: ${walker.pelvis.x.toFixed(0)}`, 12, H - 12);
+  ctx.restore();
 }
 
 requestAnimationFrame(frame);

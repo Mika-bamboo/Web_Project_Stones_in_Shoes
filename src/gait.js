@@ -1,12 +1,6 @@
 // Gait cycle data — hand-simplified from Winter's biomechanics reference.
 // 11 samples per joint across one cycle, in degrees.
-// Phase 0.0 = right heel strike. Phase 0.5 = stance/swing boundary.
-//
-// Stone launch window: φ ∈ [0.45, 0.50) — late stance, before the
-// stance handoff. The toe is ~6px above ground with forward+upward
-// velocity from the rolling motion. The spec's original [0.55, 0.65]
-// was shifted earlier because the FK model places the toe below
-// ground at toe-off due to geometric mismatch during stance handoff.
+// Phase 0.0 = right heel strike. Phase ~0.6 = right toe-off.
 
 export const GAIT_SAMPLES = {
   // Hip: flexed forward at heel strike, extends through stance, flexes again in swing
@@ -30,6 +24,3 @@ export function sampleCurve(curve, phase) {
 export const hipAngle   = (phase) => sampleCurve(GAIT_SAMPLES.hip,   phase);
 export const kneeAngle  = (phase) => sampleCurve(GAIT_SAMPLES.knee,  phase);
 export const ankleAngle = (phase) => sampleCurve(GAIT_SAMPLES.ankle, phase);
-
-// Stone launch window (per-leg effective phase)
-export const LAUNCH_WINDOW = [0.45, 0.50];

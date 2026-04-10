@@ -46,6 +46,6 @@ export class Leg {
 
   isInStance(globalPhase) {
     const phase = (globalPhase + this.phaseOffset) % 1;
-    return phase < 0.5;
+    return phase < 0.6;
   }
 }
