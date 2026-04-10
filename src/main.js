@@ -1,9 +1,13 @@
 // Frame loop for the gait animation, wiring walker + stones + renderer
 // per gait-model-spec.md §7 build order.
 
-import { Walker } from './walker.js';
-import { StoneSystem } from './stones.js';
-import { drawLeg, drawGround, drawStones } from './renderer.js';
+// Cache-buster `?v=N` on every relative import so a plain refresh picks
+// up animation-code changes. Bump this in lockstep with index.html's
+// `<script src="src/main.js?v=N">` whenever you touch walker/leg/
+// renderer/stones. Keep all ?v= values identical across the project.
+import { Walker } from './walker.js?v=5';
+import { StoneSystem } from './stones.js?v=5';
+import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=5';
 
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
@@ -82,8 +86,14 @@ function frame(now) {
   ctx.font = '12px monospace';
   ctx.globalAlpha = 0.3;
   ctx.textAlign = 'left';
+  // `sd:${SOLE_DEPTH}` exposes the currently-loaded renderer.js version:
+  //   sd:6.5  = halved profile (00125c9)
+  //   sd:13   = spec-size profile (85689e9)
+  //   sd:33   = 2.5x scaled profile (6768d3b)
+  // If this shows anything other than sd:6.5, the browser is serving a
+  // cached copy of renderer.js and you need a hard refresh.
   ctx.fillText(
-    `phase: ${walker.phase.toFixed(2)}  worldX: ${walker.worldX.toFixed(0)}  stones: ${stones.stones.length}`,
+    `phase: ${walker.phase.toFixed(2)}  worldX: ${walker.worldX.toFixed(0)}  stones: ${stones.stones.length}  sd:${SOLE_DEPTH}`,
     12, H - 12,
   );
   ctx.restore();
