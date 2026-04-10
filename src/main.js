@@ -5,13 +5,31 @@
 // up animation-code changes. Bump this in lockstep with index.html's
 // `<script src="src/main.js?v=N">` whenever you touch walker/leg/
 // renderer/stones. Keep all ?v= values identical across the project.
-import { Walker } from './walker.js?v=7';
-import { StoneSystem } from './stones.js?v=7';
-import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=7';
+import { Walker } from './walker.js?v=8';
+import { StoneSystem } from './stones.js?v=8';
+import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=8';
 
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
 const viewport = document.getElementById('viewport1');
+
+// ─── Framing ──────────────────────────────────────────────────────────
+// Below-waist zoom-and-crop. Walker, stones, and gait all stay in their
+// existing world coordinates; this is purely a render-time transform.
+//
+// ZOOM is the scale factor applied to every world-space unit. At 1.7×, a
+// 160 px leg renders at 272 screen px, which fills ~60% of a typical
+// viewport vertically.
+//
+// The reference-point mapping is: world `(walker.pelvisX, walker.groundY)`
+// is placed at screen `(W / 2, H * GROUND_SCREEN_Y)`. That centers the
+// walker horizontally and pins the ground near the bottom of the viewport,
+// which leaves just enough headroom to show the pelvis at the top of the
+// visible area and creates the "below-waist" framing.
+//
+// Everything is tunable in these two constants — no changes elsewhere.
+const ZOOM = 1.7;
+const GROUND_SCREEN_Y = 0.85;
 
 // Dark-mode detection.
 let darkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -56,7 +74,7 @@ function frame(now) {
   walker.update(dt);
   stones.update(walker, dt);
 
-  // Clear + background.
+  // Clear + background (screen space, no zoom).
   ctx.clearRect(0, 0, W, H);
   const bg = darkMode ? '#111111' : '#ffffff';
   ctx.fillStyle = bg;
@@ -66,34 +84,52 @@ function frame(now) {
   ctx.strokeStyle = stroke;
   ctx.fillStyle   = stroke;
 
-  // Ground (fixed on screen, ticks scroll with walker.worldX).
+  // ─── Enter zoomed world transform ────────────────────────────────
+  // Canvas transform sends (x, y) in the subsequent draws to
+  //   screen_x = tx + ZOOM * x
+  //   screen_y = ty + ZOOM * y
+  // Solving for tx, ty so that world (pelvisX, groundY) lands at
+  // (W/2, H * GROUND_SCREEN_Y):
+  ctx.save();
+  const tx = W / 2 - ZOOM * walker.pelvisX;
+  const ty = H * GROUND_SCREEN_Y - ZOOM * walker.groundY;
+  ctx.translate(tx, ty);
+  ctx.scale(ZOOM, ZOOM);
+
+  // Ground (world space). Ticks scroll with walker.worldX; the `W` here
+  // is used inside drawGround as a loop upper bound and intentionally
+  // over-draws a bit past the zoomed viewport — harmless, gets clipped.
   drawGround(ctx, walker.groundY, walker.worldX, W);
 
-  // Legs. Back leg drawn first for correct occlusion.
+  // Legs — back leg first for correct occlusion.
   const legs = [walker.rightLeg, walker.leftLeg];
   legs.sort((a, b) => a.ankle.x - b.ankle.x);
   drawLeg(ctx, legs[0]);
   drawLeg(ctx, legs[1]);
 
-  // Stones live in world coords; translate to screen.
+  // Stones (world coords + per-frame ground-scroll translate).
   ctx.save();
   ctx.translate(walker.pelvisX - walker.worldX, 0);
   drawStones(ctx, stones.stones);
   ctx.restore();
 
-  // Debug overlay.
+  ctx.restore();
+  // ─── Exit zoomed world transform ────────────────────────────────
+
+  // Debug overlay (screen space, unaffected by zoom).
   ctx.save();
   ctx.font = '12px monospace';
   ctx.globalAlpha = 0.3;
   ctx.textAlign = 'left';
-  // `sd:${SOLE_DEPTH}` exposes the currently-loaded renderer.js version:
-  //   sd:6.5  = halved profile (00125c9)
-  //   sd:13   = spec-size profile (85689e9)
-  //   sd:33   = 2.5x scaled profile (6768d3b)
-  // If this shows anything other than sd:6.5, the browser is serving a
+  // `sd:` exposes the loaded renderer.js's SOLE_DEPTH as a version marker:
+  //   sd:10   = current leg-proportional shoe
+  //   sd:6.5  = earlier halved profile
+  //   sd:13   = earlier spec-size profile
+  //   sd:33   = earliest 2.5x scaled profile
+  // If this shows anything other than sd:10, the browser is serving a
   // cached copy of renderer.js and you need a hard refresh.
   ctx.fillText(
-    `phase: ${walker.phase.toFixed(2)}  worldX: ${walker.worldX.toFixed(0)}  stones: ${stones.stones.length}  sd:${SOLE_DEPTH}`,
+    `phase: ${walker.phase.toFixed(2)}  worldX: ${walker.worldX.toFixed(0)}  stones: ${stones.stones.length}  sd:${SOLE_DEPTH}  zoom:${ZOOM}`,
     12, H - 12,
   );
   ctx.restore();

@@ -1,7 +1,7 @@
 // Forward kinematics for a single leg, per gait-model-spec.md §3.
 // Y-axis points down (Canvas convention).
 
-import { GAIT, sampleAt } from './gait.js?v=7';
+import { GAIT, sampleAt } from './gait.js?v=8';
 
 // Given a hip position, a phase in [0, 1), and a leg geometry `config`
 // ({ thighLen, shankLen, footLen }), compute joint positions and footAngle.
