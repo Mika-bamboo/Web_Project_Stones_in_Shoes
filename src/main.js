@@ -82,8 +82,8 @@ function frame(now) {
   drawLeg(ctx, legs[0]);
   drawLeg(ctx, legs[1]);
 
-  // Ground fill: occludes any geometry below groundY (drawn after figure)
-  drawGroundFill(ctx, walker.groundY, H, cameraX, W, bg);
+  // Ground fill: clears below-ground area to transparent (CSS bg shows through)
+  drawGroundFill(ctx, walker.groundY, H, cameraX, W);
 
   ctx.restore();
 

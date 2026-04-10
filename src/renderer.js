@@ -117,18 +117,21 @@ export function drawGround(ctx, groundY, cameraX, viewWidth) {
   ctx.globalAlpha = 1.0;
 }
 
-// Filled rectangle from groundY downward — drawn AFTER the figure
-// to occlude any geometry that dips below the ground line.
+// Clear below-ground area to transparent — CSS viewport background shows through.
+// Drawn AFTER the figure to occlude any geometry that dips below the ground line.
 // Then redraws the ground line and tick marks on top.
-export function drawGroundFill(ctx, groundY, canvasH, cameraX, viewWidth, bgColor) {
+export function drawGroundFill(ctx, groundY, canvasH, cameraX, viewWidth) {
   const left = cameraX;
   const right = cameraX + viewWidth;
 
-  // Fill below ground with background color
-  ctx.fillStyle = bgColor;
-  ctx.fillRect(left, groundY, right - left, canvasH);
+  // Clear to transparent — viewport CSS background shows through
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);  // reset to pixel coords for clearRect
+  const dpr = window.devicePixelRatio || 1;
+  ctx.clearRect(0, groundY * dpr, ctx.canvas.width, canvasH * dpr);
+  ctx.restore();
 
-  // Redraw ground line on top of the fill
+  // Redraw ground line on top
   const strokeColor = ctx._strokeColor || '#000';
   ctx.beginPath();
   ctx.moveTo(left, groundY);
@@ -137,7 +140,7 @@ export function drawGroundFill(ctx, groundY, canvasH, cameraX, viewWidth, bgColo
   ctx.strokeStyle = strokeColor;
   ctx.stroke();
 
-  // Redraw tick marks on top of the fill
+  // Redraw tick marks on top
   ctx.lineWidth = 1;
   ctx.globalAlpha = 0.3;
   const firstTick = Math.floor(left / 50) * 50;
