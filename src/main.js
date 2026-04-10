@@ -83,7 +83,8 @@ function frame(now) {
   drawLeg(ctx, legs[1]);
 
   // Ground fill: occludes any geometry below groundY (drawn after figure)
-  drawGroundFill(ctx, walker.groundY, H, cameraX, W, bg);
+  // DEBUG: using red to verify fill is rendering — change back to bg when confirmed
+  drawGroundFill(ctx, walker.groundY, H, cameraX, W, 'red');
 
   ctx.restore();
 
