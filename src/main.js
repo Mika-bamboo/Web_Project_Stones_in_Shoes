@@ -61,9 +61,9 @@ function frame(now) {
   // Camera offset: figure stays horizontally centered
   const cameraX = walker.pelvis.x - W / 2;
 
-  // Clear
+  // Clear — use viewport background color (--bg-alt) so fill matches
   ctx.clearRect(0, 0, W, H);
-  const bg = darkMode ? '#111111' : '#ffffff';
+  const bg = darkMode ? '#1a1a1a' : '#f7f7f5';
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
@@ -83,8 +83,7 @@ function frame(now) {
   drawLeg(ctx, legs[1]);
 
   // Ground fill: occludes any geometry below groundY (drawn after figure)
-  // DEBUG: using red to verify fill is rendering — change back to bg when confirmed
-  drawGroundFill(ctx, walker.groundY, H, cameraX, W, 'red');
+  drawGroundFill(ctx, walker.groundY, H, cameraX, W, bg);
 
   ctx.restore();
 
