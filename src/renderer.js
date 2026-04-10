@@ -4,19 +4,65 @@
 // caller is responsible for setting those (e.g. for dark-mode themes)
 // before invoking these helpers.
 
-// Sneaker profile in foot-local coordinates (from spec §5).
-// (0, 0) = ankle, +x = toward toe, +y = toward sole.
+// Sneaker profile in foot-local coordinates. Scaled ~2.5x from spec §5
+// with additional vertices for a rounded toe cap, rounded heel, and a
+// visible collar-opening dip at the ankle.
+// Convention: (0, 0) = ankle joint, +x = toward toe, +y = toward sole.
+// Points are in counter-clockwise order (outline of the shoe silhouette).
 const SNEAKER = [
-  { x:  -8, y: -15 },   // back of heel, above ankle
-  { x: -12, y:   0 },   // back of heel, at ankle level
-  { x: -12, y:  12 },   // bottom of heel
-  { x:  30, y:  12 },   // sole, toward toe
-  { x:  35, y:   5 },   // toe cap
-  { x:  35, y:  -2 },   // top of toe
-  { x:  15, y:  -8 },   // top of vamp
-  { x:   5, y: -12 },   // throat / lace area
-  { x:  -5, y: -15 },   // collar, back toward ankle
+  // Back-top of the heel counter.
+  { x: -20, y: -22 },
+  { x: -12, y: -25 },
+  { x:  -4, y: -26 },   // top of collar, just behind the ankle
+
+  // Collar opening — the top of the shoe dips inward where the ankle
+  // emerges (creates a visible concave arc at the ankle).
+  { x:   0, y: -18 },   // ankle center (deepest point of the opening)
+  { x:   6, y: -18 },
+  { x:  14, y: -26 },   // top of collar, just in front of the ankle
+
+  // Vamp sloping forward toward the toe.
+  { x:  22, y: -24 },
+  { x:  34, y: -20 },
+  { x:  48, y: -14 },
+  { x:  62, y:  -8 },
+
+  // Rounded toe cap, curving over the top and around to the sole.
+  { x:  75, y:   0 },
+  { x:  83, y:  10 },
+  { x:  85, y:  20 },
+  { x:  80, y:  27 },
+
+  // Flat sole from toe back to heel.
+  { x:  68, y:  32 },
+  { x:  45, y:  33 },
+  { x:  15, y:  33 },
+  { x: -10, y:  32 },
+  { x: -22, y:  28 },
+
+  // Rounded heel curving back up to the collar.
+  { x: -30, y:  18 },
+  { x: -33, y:   0 },
+  { x: -30, y: -10 },
+  { x: -25, y: -18 },
+  // closePath loops back to (-20, -22)
 ];
+
+// Sole contact points — the subset of SNEAKER that lies on the bottom of
+// the shoe. Exported so walker.js can clamp the lowest of these to groundY
+// each frame. Ordered from toe to heel.
+export const SOLE_POINTS = [
+  { x:  80, y: 27 },
+  { x:  68, y: 32 },
+  { x:  45, y: 33 },
+  { x:  15, y: 33 },
+  { x: -10, y: 32 },
+  { x: -22, y: 28 },
+];
+
+// Maximum sole y in foot-local coordinates. Useful as a "neutral-standing
+// sole depth" for initial pelvis height before the per-frame clamp kicks in.
+export const SOLE_DEPTH = 33;
 
 export function drawShoe(ctx, ankle, footAngle) {
   ctx.save();
