@@ -200,6 +200,19 @@ class Walker {
 
 When the swing leg eventually heel-strikes, `plantedHeel.left` (or right) gets recorded, the stance side flips, and the pelvis starts sliding over the new foot. Continuous, lock-free, no sliding.
 
+### 4.1. Sole-pivot refinement (required for non-zero-thickness shoes)
+
+The version above plants the **ankle joint** on the ground line — a simplification that only holds for a zero-thickness foot. Once you add a shoe with a real sole, the ankle is lifted above the ground by the shoe's sole thickness, and the offset between ankle and the lowest sole point changes with foot angle through the gait cycle. If you keep the ankle pinned, the shoe dips ~13 px below the ground during toe-off, and any one-way "push the pelvis up" clamp produces a visible bounce once per step.
+
+The reference implementation (`src/walker.js`) therefore pivots on **sole contact points** rather than the ankle:
+
+- At heel-strike, plant the **heel sole point** (foot-local `(-8, 6)`) on the ground line.
+- Each frame during stance, project the current pivot from foot-local coordinates into world space using the same rotation convention as the renderer and shift the pelvis by `planted − pivot_world`.
+- When the foot rolls past foot-flat (`toe_world.y > heel_world.y`), transition the pivot to the **ball of the foot** (foot-local `(28, 6)`) and re-plant at `(toeW.x, groundY)`. This matches how a real foot rolls from heel to ball to toe-off.
+- Flip `enforcedSide` at every heel-strike, not at toe-off of the departing leg. Otherwise the newly-planted foot drifts during the double-support window and snaps back when it takes over, which is very visible.
+
+Conceptually this is the same constraint — "the planted point stays planted" — applied to a better reference point. The rest of the architecture (phase drives IK, pelvis is an output) is unchanged.
+
 ---
 
 ## 5. Rendering — drawing the shoe in the foot's frame
@@ -210,7 +223,11 @@ The shoe is **not** a separate sprite that you position. It's a path drawn in a 
 function drawShoe(ctx, joints, shoeProfile) {
   ctx.save();
   ctx.translate(joints.ankle.x, joints.ankle.y);
-  ctx.rotate(joints.footAngle - Math.PI / 2);  // align +x with foot direction
+  // Align foot-local +x with the world-space foot direction
+  // (sin(footAngle), cos(footAngle)). Canvas `ctx.rotate(θ)` sends (1,0) to
+  // (cos θ, sin θ), so we need θ = π/2 − footAngle. Verify with θfoot = 0:
+  // foot points straight down (0, 1); rotation is π/2 and (1,0) → (0, 1). ✓
+  ctx.rotate(Math.PI / 2 - joints.footAngle);
 
   // shoeProfile is an array of points in foot-local coordinates,
   // where (0, 0) is the ankle and (footLength, 0) is the toe tip.
