@@ -119,9 +119,33 @@ export function drawGround(ctx, groundY, cameraX, viewWidth) {
 
 // Filled rectangle from groundY downward — drawn AFTER the figure
 // to occlude any geometry that dips below the ground line.
+// Then redraws the ground line and tick marks on top.
 export function drawGroundFill(ctx, groundY, canvasH, cameraX, viewWidth, bgColor) {
   const left = cameraX;
   const right = cameraX + viewWidth;
+
+  // Fill below ground with background color
   ctx.fillStyle = bgColor;
-  ctx.fillRect(left, groundY + 1, right - left, canvasH);
+  ctx.fillRect(left, groundY, right - left, canvasH);
+
+  // Redraw ground line on top of the fill
+  const strokeColor = ctx._strokeColor || '#000';
+  ctx.beginPath();
+  ctx.moveTo(left, groundY);
+  ctx.lineTo(right, groundY);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = strokeColor;
+  ctx.stroke();
+
+  // Redraw tick marks on top of the fill
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.3;
+  const firstTick = Math.floor(left / 50) * 50;
+  for (let x = firstTick; x <= right; x += 50) {
+    ctx.beginPath();
+    ctx.moveTo(x, groundY);
+    ctx.lineTo(x, groundY - 6);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1.0;
 }
