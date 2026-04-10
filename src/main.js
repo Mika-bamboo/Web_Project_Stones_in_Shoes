@@ -5,13 +5,18 @@
 // up animation-code changes. Bump this in lockstep with index.html's
 // `<script src="src/main.js?v=N">` whenever you touch walker/leg/
 // renderer/stones. Keep all ?v= values identical across the project.
-import { Walker } from './walker.js?v=8';
-import { StoneSystem } from './stones.js?v=8';
-import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=8';
+import { Walker } from './walker.js?v=9';
+import { StoneSystem } from './stones.js?v=9';
+import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=9';
 
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
 const viewport = document.getElementById('viewport1');
+// Optional — index.html has `<span id="stoneCount">` to show how many
+// stones have been trapped in the shoe. Guarded so main.js still works
+// if the element ever gets removed.
+const stoneCountEl = document.getElementById('stoneCount');
+let lastShownTrappedCount = -1;
 
 // ─── Framing ──────────────────────────────────────────────────────────
 // Below-waist zoom-and-crop. Walker, stones, and gait all stay in their
@@ -74,6 +79,13 @@ function frame(now) {
   walker.update(dt);
   stones.update(walker, dt);
 
+  // Push the trapped-stone count to the DOM element (only when it
+  // changes, to avoid thrashing layout).
+  if (stoneCountEl && stones.trappedCount !== lastShownTrappedCount) {
+    stoneCountEl.textContent = String(stones.trappedCount);
+    lastShownTrappedCount = stones.trappedCount;
+  }
+
   // Clear + background (screen space, no zoom).
   ctx.clearRect(0, 0, W, H);
   const bg = darkMode ? '#111111' : '#ffffff';
@@ -129,7 +141,7 @@ function frame(now) {
   // If this shows anything other than sd:10, the browser is serving a
   // cached copy of renderer.js and you need a hard refresh.
   ctx.fillText(
-    `phase: ${walker.phase.toFixed(2)}  worldX: ${walker.worldX.toFixed(0)}  stones: ${stones.stones.length}  sd:${SOLE_DEPTH}  zoom:${ZOOM}`,
+    `phase: ${walker.phase.toFixed(2)}  worldX: ${walker.worldX.toFixed(0)}  stones: ${stones.stones.length}  trapped: ${stones.trappedCount}  sd:${SOLE_DEPTH}  zoom:${ZOOM}`,
     12, H - 12,
   );
   ctx.restore();

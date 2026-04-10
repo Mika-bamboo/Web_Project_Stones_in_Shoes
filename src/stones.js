@@ -26,6 +26,41 @@ const DESPAWN_DISTANCE  = 600;   // remove stones this far behind the walker
 const SPAWN_MIN_GAP     = 35;    // minimum world-x spacing between stones
 const SPAWN_MAX_GAP     = 130;   // maximum world-x spacing between stones
 
+// Collar-opening endpoints in foot-local coordinates. These are SNEAKER
+// points 3 and 4 from renderer.js — the bottom of the V-shaped notch at
+// the ankle where the shoe upper cuts inward. A flying stone whose
+// trajectory segment crosses the world-space projection of this line
+// has entered the shoe.
+const COLLAR_A_LOCAL = { x: 0, y: -7.5 };
+const COLLAR_B_LOCAL = { x: 5, y: -7.5 };
+
+// Transform a foot-local point to world coordinates using the same
+// rotation convention as renderer.js drawShoe (canvas θ = π/2 − footAngle).
+// Adds an optional xOffset to move the result from screen space (where
+// the legs live) to stone-world space (where the stones live).
+function footLocalToWorld(leg, local, xOffset) {
+  const theta = Math.PI / 2 - leg.footAngle;
+  const c = Math.cos(theta), s = Math.sin(theta);
+  return {
+    x: leg.ankle.x + local.x * c - local.y * s + xOffset,
+    y: leg.ankle.y + local.x * s + local.y * c,
+  };
+}
+
+// Standard 2D line-segment intersection test. Returns true iff the
+// closed segments (p1,p2) and (p3,p4) share at least one point.
+// Uses the signed-area parameterization: parametric values t, u in
+// [0, 1] ↔ intersection exists.
+function segmentsIntersect(p1, p2, p3, p4) {
+  const d1x = p2.x - p1.x, d1y = p2.y - p1.y;
+  const d2x = p4.x - p3.x, d2y = p4.y - p3.y;
+  const denom = d1x * d2y - d1y * d2x;
+  if (Math.abs(denom) < 1e-9) return false;          // parallel/collinear
+  const t = ((p3.x - p1.x) * d2y - (p3.y - p1.y) * d2x) / denom;
+  const u = ((p3.x - p1.x) * d1y - (p3.y - p1.y) * d1x) / denom;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
+
 export class StoneSystem {
   constructor() {
     this.stones = [];
@@ -33,13 +68,24 @@ export class StoneSystem {
     // World x up to which we've generated static stones. Lazy-initialized
     // on the first update() call once we know the walker's starting worldX.
     this.generatedUpTo = null;
+    // Running count of stones that have entered a shoe via the collar
+    // opening. Surfaced in main.js's debug overlay and wired to
+    // index.html's #stoneCount element.
+    this.trappedCount = 0;
   }
 
   update(walker, dt) {
     this._ensureScatter(walker);
     this._despawnBehind(walker);
     this._detectKicks(walker, dt);
-    this._integrateFlying(walker, dt);
+    // Split motion from landing so the shoe-entry check can run *between*
+    // them. Entry must take precedence over landing: if a stone's
+    // trajectory crosses both the collar opening and the ground line in
+    // a single frame, it physically enters the shoe first (up in the
+    // air) well before reaching ground level.
+    this._integratePositions(walker, dt);
+    this._detectShoeEntry(walker);
+    this._landStones(walker);
   }
 
   // ── Static stone scatter ─────────────────────────────────────────────
@@ -111,15 +157,26 @@ export class StoneSystem {
     }
   }
 
-  // ── Flying stone integration ─────────────────────────────────────────
+  // ── Flying stone integration (split into motion + landing) ──────────
 
-  _integrateFlying(walker, dt) {
+  _integratePositions(walker, dt) {
     for (const stone of this.stones) {
       if (stone.state !== 'flying') continue;
+
+      // Snapshot the stone's position before the motion update so the
+      // shoe-entry check has a segment (prev → current) to test against.
+      stone.prevX = stone.x;
+      stone.prevY = stone.y;
 
       stone.vy += GRAVITY * dt;
       stone.x  += stone.vx * dt;
       stone.y  += stone.vy * dt;
+    }
+  }
+
+  _landStones(walker) {
+    for (const stone of this.stones) {
+      if (stone.state !== 'flying') continue;
 
       // Landing: when the stone's bottom (y + r) reaches the ground line,
       // clamp to rest and flip back to static. Require downward velocity
@@ -132,5 +189,39 @@ export class StoneSystem {
         stone.state = 'static';
       }
     }
+  }
+
+  // ── Shoe-entry detection ─────────────────────────────────────────────
+
+  _detectShoeEntry(walker) {
+    // Legs are in screen-space x (walker.pelvisX = 300 is a screen x),
+    // stones are in world-space x. Convert leg data into stone-world
+    // coords by adding (worldX − pelvisX).
+    const xOffset = walker.worldX - walker.pelvisX;
+
+    // Filter the stones array in place: stones that enter the shoe are
+    // dropped (the trapped counter tracks the total). Future steps will
+    // keep them around and attach them to the foot; for step 1 the goal
+    // is just to confirm detection by watching `trapped:` tick up.
+    this.stones = this.stones.filter((stone) => {
+      if (stone.state !== 'flying') return true;
+
+      const from = { x: stone.prevX, y: stone.prevY };
+      const to   = { x: stone.x,     y: stone.y     };
+
+      for (const side of ['right', 'left']) {
+        const leg = side === 'right' ? walker.rightLeg : walker.leftLeg;
+        if (!leg) continue;
+
+        const a = footLocalToWorld(leg, COLLAR_A_LOCAL, xOffset);
+        const b = footLocalToWorld(leg, COLLAR_B_LOCAL, xOffset);
+
+        if (segmentsIntersect(from, to, a, b)) {
+          this.trappedCount++;
+          return false;   // consume the stone
+        }
+      }
+      return true;
+    });
   }
 }
