@@ -1,4 +1,5 @@
-// Step 2: Single right leg with ground constraint + camera-follow.
+// Step 4 of gait-model-spec §8: two legs with shoes, sole-pivot ground
+// constraint (see walker.js), camera-follow. Stones (step 5) not yet wired.
 
 import { Walker } from './walker.js';
 import { drawLeg, drawGround } from './renderer.js';
