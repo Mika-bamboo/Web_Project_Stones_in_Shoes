@@ -1,22 +1,6 @@
 import { Leg } from './leg.js';
 
-// Shoe sole points in foot-local coords (must match renderer's SNEAKER_PROFILE).
-const SOLE_POINTS = [
-  { x: -6, y: 5 },   // heel sole
-  { x: 28, y: 5 },   // toe sole
-];
-
-// Compute the lowest world-space Y of the shoe sole for a given set of joints.
-function soleLowestY(joints) {
-  const angle = Math.PI / 2 - joints.footAngle;
-  const cos = Math.cos(angle), sin = Math.sin(angle);
-  let maxY = -Infinity;
-  for (const pt of SOLE_POINTS) {
-    const worldY = joints.ankle.y + pt.x * sin + pt.y * cos;
-    if (worldY > maxY) maxY = worldY;
-  }
-  return maxY;
-}
+const ANKLE_HEIGHT = 8;   // pixels above groundY where ankle is planted
 
 export class Walker {
   constructor(groundY) {
@@ -28,8 +12,8 @@ export class Walker {
     this.pelvis = { x: 200, y: 200 };   // corrected each frame by ground constraint
     this.groundY = groundY;
 
-    // Where each foot was planted at its most recent heel-strike (ankle x only)
-    this.plantedX = { right: null, left: null };
+    // Where each foot was planted at its most recent heel-strike
+    this.plantedHeel = { right: null, left: null };
 
     // Track which leg was in stance last frame, to detect heel-strike events
     this.wasInStance = { right: true, left: false };
@@ -42,15 +26,11 @@ export class Walker {
   init() {
     // Bootstrap right leg (starts in stance at phase 0)
     const rJoints = this.right.solve(this.pelvis, this.phase);
-    this.plantedX.right = rJoints.ankle.x;
+    this.plantedHeel.right = { x: rJoints.ankle.x, y: this.groundY - ANKLE_HEIGHT };
 
-    // Correct pelvis X so ankle stays at planted x
-    this.pelvis.x += this.plantedX.right - rJoints.ankle.x;
-
-    // Correct pelvis Y so the lowest sole point sits on groundY
-    const trial = this.right.solve(this.pelvis, this.phase);
-    const lowestY = soleLowestY(trial);
-    this.pelvis.y += this.groundY - lowestY;
+    // Correct pelvis so right ankle sits at the planted position
+    this.pelvis.x += this.plantedHeel.right.x - rJoints.ankle.x;
+    this.pelvis.y += this.plantedHeel.right.y - rJoints.ankle.y;
 
     // Solve both legs
     this.rightJoints = this.right.solve(this.pelvis, this.phase);
@@ -65,30 +45,22 @@ export class Walker {
       const leg = this[side];
       const inStance = leg.isInStance(this.phase);
       if (inStance && !this.wasInStance[side]) {
-        // Heel just struck — record the ankle x where the foot planted
+        // Heel just struck — record where the ankle planted
         const joints = leg.solve(this.pelvis, this.phase);
-        this.plantedX[side] = joints.ankle.x;
+        this.plantedHeel[side] = { x: joints.ankle.x, y: this.groundY - ANKLE_HEIGHT };
       }
       this.wasInStance[side] = inStance;
     }
 
-    // 2. Find the stance leg and correct pelvis
+    // 2. Find the stance leg and correct pelvis so its ankle stays planted
     const stanceSide = this.right.isInStance(this.phase) ? 'right' : 'left';
     const stanceLeg  = this[stanceSide];
-    const plantedX   = this.plantedX[stanceSide];
+    const planted    = this.plantedHeel[stanceSide];
 
-    if (plantedX !== null) {
-      // Single trial solve, then correct both X and Y
+    if (planted) {
       const trial = stanceLeg.solve(this.pelvis, this.phase);
-
-      // X constraint: keep stance ankle at planted horizontal position
-      this.pelvis.x += plantedX - trial.ankle.x;
-
-      // Y constraint: keep the stance foot's lowest sole point at groundY.
-      // Since FK Y positions shift linearly with pelvis.y, we can reuse the
-      // trial's footAngle (unchanged by X correction) to compute sole offset.
-      const lowestY = soleLowestY(trial);
-      this.pelvis.y += this.groundY - lowestY;
+      this.pelvis.x += planted.x - trial.ankle.x;
+      this.pelvis.y += planted.y - trial.ankle.y;
     }
 
     // 3. Solve both legs for rendering

@@ -13,28 +13,15 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
   darkMode = e.matches;
 });
 
-// --- Responsive sizing (retina-aware) via ResizeObserver ---
-// W and H are locked after first valid read to prevent CSS transitions
-// (e.g. .act fade-in) from causing camera drift via fluctuating dimensions.
-let W = 0, H = 0;
-let sizeLocked = false;
-function applySize() {
+// --- Responsive sizing (retina-aware) — called every frame ---
+function resize() {
   const rect = viewport.getBoundingClientRect();
   if (rect.width === 0 || rect.height === 0) return;
   const dpr = window.devicePixelRatio || 1;
-  const w = rect.width;
-  const h = rect.height;
-  // Only update canvas size on genuine resize (>5px change), not CSS transition noise
-  if (sizeLocked && Math.abs(w - W) < 5 && Math.abs(h - H) < 5) return;
-  canvas.width = Math.round(w * dpr);
-  canvas.height = Math.round(h * dpr);
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  W = w;
-  H = h;
-  sizeLocked = true;
 }
-applySize();
-new ResizeObserver(applySize).observe(viewport);
 
 let walker = null;
 let lastTime = null;
@@ -42,6 +29,11 @@ let lastTime = null;
 function frame(now) {
   requestAnimationFrame(frame);
 
+  // Resize canvas every frame to handle layout changes
+  resize();
+
+  const W = canvas.width / (window.devicePixelRatio || 1);
+  const H = canvas.height / (window.devicePixelRatio || 1);
   if (W === 0 || H === 0) return;
 
   // Create walker on first valid frame
@@ -66,7 +58,7 @@ function frame(now) {
     return;
   }
 
-  // Camera offset: figure stays horizontally centered (no lerp, exact)
+  // Camera offset: figure stays horizontally centered
   const cameraX = walker.pelvis.x - W / 2;
 
   // Clear
