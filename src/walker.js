@@ -14,8 +14,8 @@
 // in screen x" sense — it only touches pelvis.y. It prevents the shoe
 // from cutting through the ground line at all phases.
 
-import { solveLeg } from './leg.js?v=10';
-import { SOLE_POINTS, SOLE_DEPTH } from './renderer.js?v=10';
+import { solveLeg } from './leg.js?v=11';
+import { SOLE_POINTS, SOLE_DEPTH } from './renderer.js?v=11';
 
 const LEG_CONFIG = { thighLen: 80, shankLen: 80, footLen: 30 };
 
@@ -23,6 +23,13 @@ const LEG_CONFIG = { thighLen: 80, shankLen: 80, footLen: 30 };
 // overrides this, so the exact value only matters for the first solve's
 // numerical stability: thigh + shank + sole depth is a reasonable seed.
 const PELVIS_SEED = LEG_CONFIG.thighLen + LEG_CONFIG.shankLen + SOLE_DEPTH;
+
+// Per-side "shoe flash" timer used to render a brief red glow around a
+// shoe when a stone enters it. stones.js calls walker.triggerShoeFlash()
+// from _trapStone; the timer linearly decays in walker.update(); the
+// renderer reads the intensity (0..1) via getShoeFlashIntensity() and
+// blends a red overlay on top of the shoe outline.
+const SHOE_FLASH_DURATION = 0.35;   // seconds
 
 // Return the maximum (most-downward in canvas y-down) world y of any
 // sole point on this leg's shoe, given the solved joint set.
@@ -51,12 +58,33 @@ export class Walker {
     this.pelvis = null;
     this.rightLeg = null;
     this.leftLeg  = null;
+
+    // Remaining flash time per side, in seconds. Decays each update().
+    this.shoeFlash = { right: 0, left: 0 };
+  }
+
+  // Called by stones.js when a stone enters this shoe — fires a brief
+  // red glow on the matching shoe.
+  triggerShoeFlash(side) {
+    this.shoeFlash[side] = SHOE_FLASH_DURATION;
+  }
+
+  // Linear flash intensity in [0, 1]; 0 means "no flash".
+  getShoeFlashIntensity(side) {
+    return this.shoeFlash[side] / SHOE_FLASH_DURATION;
   }
 
   update(dt) {
     // Advance the single driving variable.
     this.phase = (this.phase + dt * this.cadence) % 1;
     this.worldX += dt * this.cadence * this.strideLength;
+
+    // Decay the per-shoe flash timers. Runs before stone entry detection
+    // (which lives in stones.update, called after walker.update from
+    // main.js), so a freshly-triggered flash starts at full strength
+    // for that frame's render.
+    this.shoeFlash.right = Math.max(0, this.shoeFlash.right - dt);
+    this.shoeFlash.left  = Math.max(0, this.shoeFlash.left  - dt);
 
     // 1. Tentative solve at a rough standing height.
     this.pelvis = { x: this.pelvisX, y: this.groundY - PELVIS_SEED };

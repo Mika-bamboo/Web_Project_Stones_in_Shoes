@@ -64,22 +64,39 @@ export const SOLE_POINTS = [
   { x: -13.5, y:  6.5 },   // heel back-curve (lowest at heel strike)
 ];
 
+// Sole tracing path. A subset of SNEAKER vertices that follows just the
+// bottom (rubber sole) edge from the heel back-curve corner forward to
+// the toe-cap bottom corner. Drawn as a second stroke pass with a
+// thicker line so the sole reads as a distinct rubber stripe.
+const SOLE_PATH = [
+  { x: -13.5, y:  6.5 },
+  { x: -11,   y: 10   },
+  { x:  -2,   y: 10   },
+  { x:  10,   y: 10   },
+  { x:  19.5, y: 10   },
+  { x:  29,   y: 10   },
+  { x:  33,   y:  9   },
+];
+
 // Maximum sole y in foot-local coordinates — the sole depth. Used as a
 // seed pelvis height before the per-frame clamp takes over, and surfaced
 // in the main.js debug overlay as a version fingerprint.
 export const SOLE_DEPTH = 10;
 
-export function drawShoe(ctx, ankle, footAngle) {
+// drawShoe(ctx, ankle, footAngle, flashIntensity = 0)
+//
+// `flashIntensity` is a number in [0, 1]. When non-zero, a third stroke
+// pass overlays the shoe outline with a red glow whose alpha equals the
+// intensity — used to flash the shoe red briefly when a stone enters.
+export function drawShoe(ctx, ankle, footAngle, flashIntensity = 0) {
   ctx.save();
   ctx.translate(ankle.x, ankle.y);
   // Align foot-local +x with the world-space foot direction
   // (sin footAngle, cos footAngle). `ctx.rotate(θ)` sends (1,0) to
   // (cos θ, sin θ), so we need θ = π/2 − footAngle.
-  // (Spec §5 shows `footAngle − π/2`; that sign is backwards — verify with
-  //  footAngle = 0: foot-local (1,0) must map to world (0,1), which only
-  //  `π/2 − footAngle` achieves.)
   ctx.rotate(Math.PI / 2 - footAngle);
 
+  // 1. Upper outline (full SNEAKER polygon, normal stroke).
   ctx.beginPath();
   ctx.moveTo(SNEAKER[0].x, SNEAKER[0].y);
   for (let i = 1; i < SNEAKER.length; i++) {
@@ -88,6 +105,35 @@ export function drawShoe(ctx, ankle, footAngle) {
   ctx.closePath();
   ctx.lineWidth = 2;
   ctx.stroke();
+
+  // 2. Sole stripe (just the bottom edge, thicker stroke). Same color
+  //    as the upper. Visually reads as a rubber sole because the line
+  //    is twice as thick as the rest of the outline.
+  ctx.beginPath();
+  ctx.moveTo(SOLE_PATH[0].x, SOLE_PATH[0].y);
+  for (let i = 1; i < SOLE_PATH.length; i++) {
+    ctx.lineTo(SOLE_PATH[i].x, SOLE_PATH[i].y);
+  }
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  // 3. Red flash overlay (only when something just entered this shoe).
+  //    A second stroke of the upper polygon with semi-transparent red
+  //    layered on top. The caller decays `flashIntensity` over a few
+  //    hundred ms so the flash is brief.
+  if (flashIntensity > 0) {
+    const savedStroke = ctx.strokeStyle;
+    ctx.strokeStyle = `rgba(220, 30, 30, ${flashIntensity})`;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(SNEAKER[0].x, SNEAKER[0].y);
+    for (let i = 1; i < SNEAKER.length; i++) {
+      ctx.lineTo(SNEAKER[i].x, SNEAKER[i].y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.strokeStyle = savedStroke;
+  }
 
   ctx.restore();
 }
@@ -115,10 +161,12 @@ export function drawJointDot(ctx, pos, radius = 4) {
   ctx.fill();
 }
 
-export function drawLeg(ctx, leg) {
-  drawLegTube(ctx, leg.hip,  leg.knee,  16);   // thigh
-  drawLegTube(ctx, leg.knee, leg.ankle, 14);   // shank
-  drawShoe  (ctx, leg.ankle, leg.footAngle);
+// drawLeg(ctx, leg, flashIntensity = 0) — flashIntensity is forwarded
+// to drawShoe so the shoe of this leg flashes red when set.
+export function drawLeg(ctx, leg, flashIntensity = 0) {
+  drawLegTube(ctx, leg.hip,  leg.knee,  16);                   // thigh
+  drawLegTube(ctx, leg.knee, leg.ankle, 14);                   // shank
+  drawShoe  (ctx, leg.ankle, leg.footAngle, flashIntensity);
   drawJointDot(ctx, leg.hip,  5);
   drawJointDot(ctx, leg.knee, 4);
 }
@@ -147,10 +195,18 @@ export function drawGround(ctx, groundY, scrollX, viewWidth) {
   ctx.globalAlpha = 1.0;
 }
 
+// In-shoe stones are drawn in red to signal "trapped"; static and
+// flying stones use whatever ctx.fillStyle the caller already set
+// (the theme stroke color in main.js).
+const TRAPPED_STONE_COLOR = '#cc0000';
+
 export function drawStones(ctx, stones) {
+  const defaultFill = ctx.fillStyle;
   for (const s of stones) {
+    ctx.fillStyle = (s.state === 'inshoe') ? TRAPPED_STONE_COLOR : defaultFill;
     ctx.beginPath();
     ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.fillStyle = defaultFill;
 }

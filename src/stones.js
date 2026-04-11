@@ -241,7 +241,7 @@ export class StoneSystem {
           const a = footLocalToWorld(leg, segA, xOffset);
           const b = footLocalToWorld(leg, segB, xOffset);
           if (segmentsIntersect(from, to, a, b)) {
-            this._trapStone(stone, leg, side, xOffset);
+            this._trapStone(stone, leg, side, xOffset, walker);
             trapped = true;
             break;
           }
@@ -252,8 +252,9 @@ export class StoneSystem {
 
   // Transition a flying stone into the 'inshoe' state. Captures the
   // stone's current world position relative to the leg's foot frame so
-  // that `_updateInShoe` can re-project it each subsequent frame.
-  _trapStone(stone, leg, side, xOffset) {
+  // that `_updateInShoe` can re-project it each subsequent frame, and
+  // tells the walker to flash the matching shoe red briefly.
+  _trapStone(stone, leg, side, xOffset, walker) {
     // Stone's screen-space position (legs live in screen space, so the
     // foot-local frame is anchored to leg.ankle, also in screen space).
     const stoneScreenX = stone.x - xOffset;
@@ -284,6 +285,10 @@ export class StoneSystem {
     stone.vy = 0;
 
     this.trappedCount++;
+
+    // Tell the walker to flash this shoe red — visual signal that a
+    // stone just damaged the shoe.
+    walker.triggerShoeFlash(side);
   }
 
   // ── In-shoe stone tracking ───────────────────────────────────────────
