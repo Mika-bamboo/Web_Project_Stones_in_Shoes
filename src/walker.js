@@ -14,8 +14,8 @@
 // in screen x" sense — it only touches pelvis.y. It prevents the shoe
 // from cutting through the ground line at all phases.
 
-import { solveLeg } from './leg.js?v=11';
-import { SOLE_POINTS, SOLE_DEPTH } from './renderer.js?v=11';
+import { solveLeg } from './leg.js?v=12';
+import { SOLE_POINTS, SOLE_DEPTH } from './renderer.js?v=12';
 
 const LEG_CONFIG = { thighLen: 80, shankLen: 80, footLen: 30 };
 

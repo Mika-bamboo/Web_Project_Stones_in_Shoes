@@ -118,20 +118,35 @@ export function drawShoe(ctx, ankle, footAngle, flashIntensity = 0) {
   ctx.stroke();
 
   // 3. Red flash overlay (only when something just entered this shoe).
-  //    A second stroke of the upper polygon with semi-transparent red
-  //    layered on top. The caller decays `flashIntensity` over a few
-  //    hundred ms so the flash is brief.
+  //    Fills the shoe polygon with semi-transparent red so the entire
+  //    silhouette glows, and re-strokes the outline at full alpha for
+  //    edge definition. The fill alpha is capped below 1 so trapped
+  //    stones drawn behind the leg (in main.js, before drawLeg) remain
+  //    partially visible underneath the glow as it fades.
   if (flashIntensity > 0) {
+    const savedFill   = ctx.fillStyle;
     const savedStroke = ctx.strokeStyle;
-    ctx.strokeStyle = `rgba(220, 30, 30, ${flashIntensity})`;
-    ctx.lineWidth = 4;
+
+    // Build the SNEAKER path once and reuse it for fill + stroke.
     ctx.beginPath();
     ctx.moveTo(SNEAKER[0].x, SNEAKER[0].y);
     for (let i = 1; i < SNEAKER.length; i++) {
       ctx.lineTo(SNEAKER[i].x, SNEAKER[i].y);
     }
     ctx.closePath();
+
+    // Fill — bright red, alpha proportional to (and below) the flash
+    // intensity so the glow fades smoothly with the timer.
+    ctx.fillStyle = `rgba(255, 50, 50, ${flashIntensity * 0.6})`;
+    ctx.fill();
+
+    // Outline — same shade at full flash alpha, lineWidth 4 so the
+    // shoe edge pops while the fill is visible.
+    ctx.strokeStyle = `rgba(220, 30, 30, ${flashIntensity})`;
+    ctx.lineWidth = 4;
     ctx.stroke();
+
+    ctx.fillStyle   = savedFill;
     ctx.strokeStyle = savedStroke;
   }
 
