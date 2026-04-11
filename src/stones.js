@@ -14,9 +14,9 @@
 // `translate(pelvisX − worldX, 0)` when drawing them.
 
 const GRAVITY           = 800;   // px/s² (downward = +y)
-const KICK_WINDOW_MIN   = 0.55;  // toe-off phase start
-const KICK_WINDOW_MAX   = 0.70;  // toe-off phase end
-const KICK_REACH        = 26;    // px — toe→stone distance at which a kick fires
+const KICK_WINDOW_MIN   = 0.50;  // toe-off phase start (slightly widened)
+const KICK_WINDOW_MAX   = 0.72;  // toe-off phase end
+const KICK_REACH        = 32;    // px — toe→stone distance at which a kick fires
 const STONE_MIN_R       = 3;
 const STONE_MAX_R       = 6;
 
@@ -26,13 +26,31 @@ const DESPAWN_DISTANCE  = 600;   // remove stones this far behind the walker
 const SPAWN_MIN_GAP     = 35;    // minimum world-x spacing between stones
 const SPAWN_MAX_GAP     = 130;   // maximum world-x spacing between stones
 
-// Collar-opening endpoints in foot-local coordinates. These are SNEAKER
-// points 3 and 4 from renderer.js — the bottom of the V-shaped notch at
-// the ankle where the shoe upper cuts inward. A flying stone whose
-// trajectory segment crosses the world-space projection of this line
-// has entered the shoe.
-const COLLAR_A_LOCAL = { x: 0, y: -7.5 };
-const COLLAR_B_LOCAL = { x: 5, y: -7.5 };
+// Collar-opening edges in foot-local coordinates. These are the three
+// segments of the V-shaped notch at the top of the SNEAKER profile
+// (renderer.js points 2 → 3 → 4 → 5):
+//   back diagonal:   (-4, -11) → ( 0, -7.5)
+//   bottom of V:     ( 0, -7.5) → ( 5, -7.5)
+//   front diagonal:  ( 5, -7.5) → ( 9, -11)
+// A flying stone whose per-frame trajectory crosses ANY of these three
+// segments has entered the shoe through the collar opening. Checking
+// all three segments (instead of just the bottom of the V, as in step
+// 1) roughly triples the entry surface and matches the actual visible
+// cutout in the shoe outline.
+const COLLAR_SEGMENTS_LOCAL = [
+  [{ x: -4, y: -11   }, { x:  0, y:  -7.5 }],
+  [{ x:  0, y:  -7.5 }, { x:  5, y:  -7.5 }],
+  [{ x:  5, y:  -7.5 }, { x:  9, y: -11   }],
+];
+
+// Settling parameters for in-shoe stones. Each trapped stone gets a
+// random target inside the shoe (somewhere above the sole, between the
+// heel and the toe-box) and drifts toward it with exponential decay.
+const SETTLE_RATE       = 4.0;   // 1/s — exponential decay rate
+const SETTLE_X_MIN      = 0;     // foot-local x range for the target
+const SETTLE_X_MAX      = 12;
+const SETTLE_Y_MIN      = 4;     // foot-local y range (above the sole)
+const SETTLE_Y_MAX      = 7;
 
 // Transform a foot-local point to world coordinates using the same
 // rotation convention as renderer.js drawShoe (canvas θ = π/2 − footAngle).
@@ -86,6 +104,9 @@ export class StoneSystem {
     this._integratePositions(walker, dt);
     this._detectShoeEntry(walker);
     this._landStones(walker);
+    // Trapped stones get re-positioned each frame to track their host
+    // foot through the gait cycle.
+    this._updateInShoe(walker, dt);
   }
 
   // ── Static stone scatter ─────────────────────────────────────────────
@@ -109,8 +130,11 @@ export class StoneSystem {
   }
 
   _despawnBehind(walker) {
+    // In-shoe stones are pinned to the foot and can briefly drift behind
+    // the cutoff between the despawn pass and the in-shoe re-projection
+    // pass (which runs later in update()), so they're explicitly kept.
     const cutoff = walker.worldX - DESPAWN_DISTANCE;
-    this.stones = this.stones.filter(s => s.x > cutoff);
+    this.stones = this.stones.filter(s => s.state === 'inshoe' || s.x > cutoff);
   }
 
   // ── Kick detection ───────────────────────────────────────────────────
@@ -142,13 +166,15 @@ export class StoneSystem {
           const dx = stone.x - toeWorld.x;
           const dy = stone.y - toeWorld.y;
           if (dx * dx + dy * dy < KICK_REACH * KICK_REACH) {
-            // Launch. Use a fixed forward + upward base velocity with a
-            // small contribution from the toe's own motion so each kick
-            // varies a little. Clamp to guarantee the stone actually
-            // flies forward and up.
+            // Launch. Velocities tuned so the peak of the arc reaches
+            // above collar height (vy² / 2g ≈ 144 px above launch with
+            // the values below). Forward velocity is 1.5–2× the walker
+            // speed (120 px/s), so the stone arcs *forward and up*
+            // relative to the walker, then descends across the next
+            // stance leg's collar.
             stone.state = 'flying';
-            stone.vx = Math.max(120 + toeVx * 0.25,  90);
-            stone.vy = Math.min(-320 - Math.abs(toeVy) * 0.2, -280);
+            stone.vx = Math.max(180 + toeVx * 0.30, 140);
+            stone.vy = Math.min(-470 - Math.abs(toeVy) * 0.20, -420);
           }
         }
       }
@@ -199,29 +225,91 @@ export class StoneSystem {
     // coords by adding (worldX − pelvisX).
     const xOffset = walker.worldX - walker.pelvisX;
 
-    // Filter the stones array in place: stones that enter the shoe are
-    // dropped (the trapped counter tracks the total). Future steps will
-    // keep them around and attach them to the foot; for step 1 the goal
-    // is just to confirm detection by watching `trapped:` tick up.
-    this.stones = this.stones.filter((stone) => {
-      if (stone.state !== 'flying') return true;
+    for (const stone of this.stones) {
+      if (stone.state !== 'flying') continue;
 
       const from = { x: stone.prevX, y: stone.prevY };
       const to   = { x: stone.x,     y: stone.y     };
 
+      let trapped = false;
       for (const side of ['right', 'left']) {
+        if (trapped) break;
         const leg = side === 'right' ? walker.rightLeg : walker.leftLeg;
         if (!leg) continue;
 
-        const a = footLocalToWorld(leg, COLLAR_A_LOCAL, xOffset);
-        const b = footLocalToWorld(leg, COLLAR_B_LOCAL, xOffset);
-
-        if (segmentsIntersect(from, to, a, b)) {
-          this.trappedCount++;
-          return false;   // consume the stone
+        for (const [segA, segB] of COLLAR_SEGMENTS_LOCAL) {
+          const a = footLocalToWorld(leg, segA, xOffset);
+          const b = footLocalToWorld(leg, segB, xOffset);
+          if (segmentsIntersect(from, to, a, b)) {
+            this._trapStone(stone, leg, side, xOffset);
+            trapped = true;
+            break;
+          }
         }
       }
-      return true;
-    });
+    }
+  }
+
+  // Transition a flying stone into the 'inshoe' state. Captures the
+  // stone's current world position relative to the leg's foot frame so
+  // that `_updateInShoe` can re-project it each subsequent frame.
+  _trapStone(stone, leg, side, xOffset) {
+    // Stone's screen-space position (legs live in screen space, so the
+    // foot-local frame is anchored to leg.ankle, also in screen space).
+    const stoneScreenX = stone.x - xOffset;
+    const stoneScreenY = stone.y;
+    const dx = stoneScreenX - leg.ankle.x;
+    const dy = stoneScreenY - leg.ankle.y;
+
+    // Inverse of footLocalToWorld's rotation:
+    //   forward:  world = ankle + R(θ) * local   where θ = π/2 − footAngle
+    //   inverse:  local = R(−θ) * (world − ankle) = Rᵀ(θ) * (...)
+    // Rᵀ has cos on the diagonal and the off-diagonals swapped/negated.
+    const theta = Math.PI / 2 - leg.footAngle;
+    const c = Math.cos(theta), s = Math.sin(theta);
+    const fx =  c * dx + s * dy;
+    const fy = -s * dx + c * dy;
+
+    stone.state = 'inshoe';
+    stone.legSide = side;
+    stone.footLocal = { x: fx, y: fy };
+    // Each stone settles toward a slightly different target so they
+    // don't all stack on the same point inside the shoe.
+    stone.settleTarget = {
+      x: SETTLE_X_MIN + Math.random() * (SETTLE_X_MAX - SETTLE_X_MIN),
+      y: SETTLE_Y_MIN + Math.random() * (SETTLE_Y_MAX - SETTLE_Y_MIN),
+    };
+    // No more projectile motion.
+    stone.vx = 0;
+    stone.vy = 0;
+
+    this.trappedCount++;
+  }
+
+  // ── In-shoe stone tracking ───────────────────────────────────────────
+
+  _updateInShoe(walker, dt) {
+    const xOffset = walker.worldX - walker.pelvisX;
+    // Exponential drift toward the settling target. The 1 − e^(-r·dt)
+    // form is frame-rate independent: at large dt the stone snaps most
+    // of the way; at small dt it moves a small fraction.
+    const k = 1 - Math.exp(-SETTLE_RATE * dt);
+
+    for (const stone of this.stones) {
+      if (stone.state !== 'inshoe') continue;
+      const leg = stone.legSide === 'right' ? walker.rightLeg : walker.leftLeg;
+      if (!leg) continue;
+
+      // 1. Settle the foot-local position toward the per-stone target.
+      stone.footLocal.x += (stone.settleTarget.x - stone.footLocal.x) * k;
+      stone.footLocal.y += (stone.settleTarget.y - stone.footLocal.y) * k;
+
+      // 2. Re-project to world coords using the current leg state.
+      //    Pass xOffset = 0 to get screen coords, then add xOffset to
+      //    convert to stone-world coords (where stone.x lives).
+      const screen = footLocalToWorld(leg, stone.footLocal, 0);
+      stone.x = screen.x + xOffset;
+      stone.y = screen.y;
+    }
   }
 }
