@@ -5,9 +5,9 @@
 // up animation-code changes. Bump this in lockstep with index.html's
 // `<script src="src/main.js?v=N">` whenever you touch walker/leg/
 // renderer/stones. Keep all ?v= values identical across the project.
-import { Walker } from './walker.js?v=12';
-import { StoneSystem } from './stones.js?v=12';
-import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=12';
+import { Walker } from './walker.js?v=13';
+import { StoneSystem } from './stones.js?v=13';
+import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=13';
 
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
@@ -17,6 +17,11 @@ const viewport = document.getElementById('viewport1');
 // if the element ever gets removed.
 const stoneCountEl = document.getElementById('stoneCount');
 let lastShownTrappedCount = -1;
+
+// Restart-button DOM lookup. The actual click handler is wired further
+// down (after walker/stones/lastTime are declared) so the closure binds
+// to those variables in normal scope, not via TDZ.
+const restartBtn = document.getElementById('restartBtn');
 
 // ─── Framing ──────────────────────────────────────────────────────────
 // Below-waist zoom-and-crop. Walker, stones, and gait all stay in their
@@ -55,6 +60,20 @@ function resize() {
 let walker = null;
 let stones = null;
 let lastTime = null;
+
+// Now that walker/stones/lastTime exist, wire the restart-button click
+// handler. Setting them to null causes the next frame's init block
+// (`if (!walker) { ... }`) to rebuild everything from scratch — same
+// path as the very first frame after page load.
+if (restartBtn) {
+  restartBtn.addEventListener('click', () => {
+    walker = null;
+    stones = null;
+    lastTime = null;
+    lastShownTrappedCount = -1;
+    if (stoneCountEl) stoneCountEl.textContent = '0';
+  });
+}
 
 function frame(now) {
   requestAnimationFrame(frame);

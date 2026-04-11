@@ -232,6 +232,28 @@
     transform: rotate(15deg);
   }
 
+  /* Restart button — sits next to .stone-badge so the user can reset
+     the gait animation without reloading the page. */
+  .restart-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: var(--radius);
+    margin-top: 16px;
+    margin-left: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .restart-btn:hover { background: var(--accent-light); }
+  .restart-btn:active { transform: translateY(1px); }
+
   /* ===== Controls panel ===== */
   .controls {
     border: 1px solid var(--border);
@@ -620,6 +642,7 @@
     <div class="stone-badge" id="stoneBadge">
       <span id="stoneCount">0</span> stones entered your shoe
     </div>
+    <button class="restart-btn" id="restartBtn" type="button" title="Reset the walker and stone count">↻ Restart</button>
   </div>
 
   <div class="scroll-hint">Scroll to walk</div>
@@ -1009,7 +1032,7 @@
 <!-- `?v=N` is a cache buster for the ES-module chain. Bump N whenever
      gait animation code (walker/leg/renderer/stones) changes and you
      want a hard reload without forcing users to clear cache. -->
-<script type="module" src="src/main.js?v=12"></script>
+<script type="module" src="src/main.js?v=13"></script>
 
 </body>
 </html>
