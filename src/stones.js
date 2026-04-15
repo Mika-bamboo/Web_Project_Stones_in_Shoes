@@ -20,6 +20,27 @@ const KICK_REACH        = 32;    // px — toe→stone distance at which a kick 
 const STONE_MIN_R       = 3;
 const STONE_MAX_R       = 6;
 
+// ── Physically-accurate kick model ───────────────────────────────────
+// When the toe contacts a stone during toe-off, it delivers a fixed
+// "impulse" plus a contribution from the toe's own velocity. The
+// resulting velocity is that impulse divided by the stone's mass:
+// larger stones get proportionally less launch velocity from the same
+// kick. This is the standard momentum-transfer story — it's what makes
+// a pebble fly dramatically while a heavier stone barely hops.
+//
+// The constants below are calibrated against the REFERENCE stone at
+// r = STONE_MIN_R = 3 (mass = 9 via the r² disk-mass model). At that
+// reference, a kick with toeVx = 200 and toeVy = -100 produces roughly
+// vx = 250, vy = -505 → peak arc ~ 159 px above launch, comfortably
+// clearing collar height (~140 px above the toe) so the stone can
+// enter the shoe. Stones at r = 6 (mass = 36, massRatio = 0.25) only
+// receive ¼ of that kick → peak ~10 px. Big stones stay on the ground.
+const KICK_BASE_MASS    = 9;     // r² for the reference stone (r = 3)
+const KICK_BASE_VX      = 180;   // horizontal impulse for the reference
+const KICK_BASE_VY      = -480;  // vertical impulse for the reference
+const KICK_TOE_VX_COEFF = 0.35;  // contribution of toe vx to horizontal kick
+const KICK_TOE_VY_COEFF = 0.25;  // contribution of toe vy to vertical kick
+
 // Procedural stone scatter settings.
 const SPAWN_HORIZON     = 700;   // spawn stones this far ahead of the walker
 const DESPAWN_DISTANCE  = 600;   // remove stones this far behind the walker
@@ -124,6 +145,12 @@ export class StoneSystem {
         vx: 0,
         vy: 0,
         r,
+        // Mass scales with cross-sectional area (2D-disk model), r².
+        // See KICK_BASE_MASS below — the kick divides impulse by this,
+        // so larger stones get proportionally less launch velocity from
+        // the same toe kick. That's the whole "physically accurate"
+        // momentum-transfer story: heavy things are harder to kick.
+        mass: r * r,
         state: 'static',
       });
     }
@@ -166,15 +193,17 @@ export class StoneSystem {
           const dx = stone.x - toeWorld.x;
           const dy = stone.y - toeWorld.y;
           if (dx * dx + dy * dy < KICK_REACH * KICK_REACH) {
-            // Launch. Velocities tuned so the peak of the arc reaches
-            // above collar height (vy² / 2g ≈ 144 px above launch with
-            // the values below). Forward velocity is 1.5–2× the walker
-            // speed (120 px/s), so the stone arcs *forward and up*
-            // relative to the walker, then descends across the next
-            // stance leg's collar.
+            // Impulse/mass launch. The impulse vector — a fixed base
+            // plus a portion of the toe's current velocity — is
+            // divided by the stone's mass (∝ r²), so a r=3 stone gets
+            // the full kick and a r=6 stone (4× the mass) gets ¼ of
+            // it. No floor is applied: heavy stones are *supposed* to
+            // barely move, and clamping the kick to a minimum would
+            // wipe out the physics. See constants at top of file.
+            const massRatio = KICK_BASE_MASS / stone.mass;
             stone.state = 'flying';
-            stone.vx = Math.max(180 + toeVx * 0.30, 140);
-            stone.vy = Math.min(-470 - Math.abs(toeVy) * 0.20, -420);
+            stone.vx = (KICK_BASE_VX + toeVx * KICK_TOE_VX_COEFF) * massRatio;
+            stone.vy = (KICK_BASE_VY - Math.abs(toeVy) * KICK_TOE_VY_COEFF) * massRatio;
           }
         }
       }
