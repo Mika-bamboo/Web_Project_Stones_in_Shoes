@@ -298,10 +298,10 @@ function drawTrouser(ctx, hip, knee, ankle, localPhase, fillColor) {
   // horizontal (-1, 0) as overallT increases from hip (0) to ankle (1).
   // At the hip the trouser follows the leg exactly (waistband is
   // attached). At the ankle the offset is mostly horizontal (hem hangs).
-  const DRAPE = 0.55;  // 0 = rigid tube, 1 = fully horizontal at ankle
+  const DRAPE = 2.5;  // 0 = rigid tube, ≥2 = fully horizontal from mid-thigh down
 
   function drapedPerp(rawNx, rawNy, overallT) {
-    const df = overallT * DRAPE;
+    const df = Math.min(1, overallT * DRAPE);
     let dnx = rawNx * (1 - df) + (-1) * df;   // blend toward -x (back)
     let dny = rawNy * (1 - df);                // blend toward 0 (horizontal)
     const len = Math.hypot(dnx, dny) || 1;
