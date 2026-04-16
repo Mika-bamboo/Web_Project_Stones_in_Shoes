@@ -185,7 +185,7 @@ export function drawLegTube(ctx, a, b, width = 14) {
 // Both arrays must be the same length. With n = 6 we get 5 outline
 // segments per side (10 total), enough to read as a smooth curve at
 // ZOOM=1.7 without bezier math.
-export function drawMuscledTube(ctx, a, b, backWidths, frontWidths) {
+export function drawMuscledTube(ctx, a, b, backWidths, frontWidths, doFill = false) {
   const n = backWidths.length;
   if (n < 2 || frontWidths.length !== n) return;
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -216,6 +216,11 @@ export function drawMuscledTube(ctx, a, b, backWidths, frontWidths) {
     ctx.lineTo(cx - nx * w, cy - ny * w);
   }
   ctx.closePath();
+  // When doFill is true, fill the polygon with whatever ctx.fillStyle
+  // the caller set (typically a trouser / background color) before
+  // stroking the outline. This gives the fabric a solid look and
+  // ensures the front leg cleanly occludes the back leg.
+  if (doFill) ctx.fill();
   ctx.lineWidth = 2;
   ctx.stroke();
 }
@@ -235,23 +240,48 @@ const THIGH_FRONT_PROFILE = [7,   9,   9.5, 8.5, 7,   6];   // quadriceps
 const SHANK_BACK_PROFILE  = [6,  10,  9.5, 7,   5.5, 4.5]; // gastrocnemius
 const SHANK_FRONT_PROFILE = [5,   5.5, 5,   4.5, 4,   3.5]; // tibia
 
+// ── Trouser profiles ────────────────────────────────────────────────
+// Wider and smoother than the bare-muscle profiles: fabric hides the
+// muscle contour and adds ~2–3 px of bulk on each side. These replace
+// the muscle profiles when trousers are drawn.
+//
+// Thigh trouser: barely asymmetric; fabric drapes nearly evenly.
+const TROUSER_THIGH_BACK  = [10.5, 10.5, 10, 9.5, 8.5, 7.5];
+const TROUSER_THIGH_FRONT = [10,   10.5, 10, 9.5, 8.5, 7.5];
+// Shank trouser: straighter than the bare calf; fabric hides the bulge.
+const TROUSER_SHANK_BACK  = [7.5,  8,  8,  7.5, 7,   5.5];
+const TROUSER_SHANK_FRONT = [7,    8,  7.5, 7,  6.5, 5];
+
 export function drawJointDot(ctx, pos, radius = 4) {
   ctx.beginPath();
   ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
   ctx.fill();
 }
 
-// drawLeg(ctx, leg, flashIntensity = 0) — flashIntensity is forwarded
-// to drawShoe so the shoe of this leg flashes red when set.
-// Thigh and shank are drawn with asymmetric muscle profiles: the back
-// of each segment (calf / hamstring / glute) is anatomically thicker
-// than the front (tibia / quadriceps).
-export function drawLeg(ctx, leg, flashIntensity = 0) {
-  drawMuscledTube(ctx, leg.hip,  leg.knee,  THIGH_BACK_PROFILE, THIGH_FRONT_PROFILE);
-  drawMuscledTube(ctx, leg.knee, leg.ankle, SHANK_BACK_PROFILE, SHANK_FRONT_PROFILE);
-  drawShoe      (ctx, leg.ankle, leg.footAngle, flashIntensity);
-  drawJointDot  (ctx, leg.hip,  5);
-  drawJointDot  (ctx, leg.knee, 4);
+// drawLeg(ctx, leg, flashIntensity, trouserFill)
+//
+// When `trouserFill` is a CSS color string, the leg segments are drawn
+// with the wider trouser profiles and filled with that color so the
+// fabric looks solid and the front leg cleanly occludes the back leg.
+// When `trouserFill` is null/undefined, bare-muscle profiles are used
+// with no fill (outline-only, original stick-figure look).
+//
+// `flashIntensity` (0..1) is forwarded to drawShoe for the red-glow
+// flash when a stone enters.
+export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null) {
+  if (trouserFill) {
+    const savedFill = ctx.fillStyle;
+    ctx.fillStyle = trouserFill;
+    drawMuscledTube(ctx, leg.hip,  leg.knee,  TROUSER_THIGH_BACK, TROUSER_THIGH_FRONT, true);
+    drawMuscledTube(ctx, leg.knee, leg.ankle, TROUSER_SHANK_BACK, TROUSER_SHANK_FRONT, true);
+    ctx.fillStyle = savedFill;   // restore for joint dots (which use fill for the dot)
+  } else {
+    drawMuscledTube(ctx, leg.hip,  leg.knee,  THIGH_BACK_PROFILE, THIGH_FRONT_PROFILE);
+    drawMuscledTube(ctx, leg.knee, leg.ankle, SHANK_BACK_PROFILE, SHANK_FRONT_PROFILE);
+  }
+  drawShoe    (ctx, leg.ankle, leg.footAngle, flashIntensity);
+  drawJointDot(ctx, leg.hip,  5);
+  drawJointDot(ctx, leg.knee, 4);
 }
 
 // Scrolling ground: the line stays fixed on screen, but the tick marks

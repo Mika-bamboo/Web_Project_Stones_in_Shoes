@@ -5,9 +5,9 @@
 // up animation-code changes. Bump this in lockstep with index.html's
 // `<script src="src/main.js?v=N">` whenever you touch walker/leg/
 // renderer/stones. Keep all ?v= values identical across the project.
-import { Walker } from './walker.js?v=16';
-import { StoneSystem } from './stones.js?v=16';
-import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=16';
+import { Walker } from './walker.js?v=17';
+import { StoneSystem } from './stones.js?v=17';
+import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=17';
 
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
@@ -147,13 +147,16 @@ function frame(now) {
   // Legs — back leg first for correct occlusion. Each leg carries its
   // own shoe-flash intensity (0..1) so that drawShoe knows whether to
   // overlay a red glow when a stone just entered.
+  // Trouser fill: a very faint off-background tint so the fabric reads
+  // as solid and the front leg occludes the back leg cleanly.
+  const trouserFill = darkMode ? '#191919' : '#f4f4f4';
   const legsWithFlash = [
     { leg: walker.rightLeg, flash: walker.getShoeFlashIntensity('right') },
     { leg: walker.leftLeg,  flash: walker.getShoeFlashIntensity('left')  },
   ];
   legsWithFlash.sort((a, b) => a.leg.ankle.x - b.leg.ankle.x);
-  drawLeg(ctx, legsWithFlash[0].leg, legsWithFlash[0].flash);
-  drawLeg(ctx, legsWithFlash[1].leg, legsWithFlash[1].flash);
+  drawLeg(ctx, legsWithFlash[0].leg, legsWithFlash[0].flash, trouserFill);
+  drawLeg(ctx, legsWithFlash[1].leg, legsWithFlash[1].flash, trouserFill);
 
   // ── Static + flying stones (drawn AFTER legs) ──
   ctx.save();
