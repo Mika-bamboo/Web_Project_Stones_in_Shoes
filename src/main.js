@@ -5,9 +5,9 @@
 // up animation-code changes. Bump this in lockstep with index.html's
 // `<script src="src/main.js?v=N">` whenever you touch walker/leg/
 // renderer/stones. Keep all ?v= values identical across the project.
-import { Walker } from './walker.js?v=25';
-import { StoneSystem } from './stones.js?v=25';
-import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=25';
+import { Walker } from './walker.js?v=26';
+import { StoneSystem } from './stones.js?v=26';
+import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=26';
 
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
@@ -132,22 +132,9 @@ function frame(now) {
   // over-draws a bit past the zoomed viewport — harmless, gets clipped.
   drawGround(ctx, walker.groundY, walker.worldX, W);
 
-  // ── In-shoe stones (drawn BEFORE legs) ──
-  // Trapped stones are drawn first so the leg / shoe outlines render on
-  // top of them — visually they look "inside" the shoe instead of
-  // floating in front of it. Static and flying stones are drawn AFTER
-  // the legs further down so they appear in front of the foot.
-  const inShoeStones  = stones.stones.filter(s => s.state === 'inshoe');
-  const groundedFlying = stones.stones.filter(s => s.state !== 'inshoe');
-  ctx.save();
-  ctx.translate(walker.pelvisX - walker.worldX, 0);
-  drawStones(ctx, inShoeStones);
-  ctx.restore();
-
   // Legs — right leg is always drawn LAST so it reads as closer to the
   // camera. The filled trouser of the right leg occludes the left leg's
-  // outline wherever they overlap. (Previously sorted by ankle.x, which
-  // swapped the depth order every half-cycle and looked flickery.)
+  // outline wherever they overlap.
   const trouserFill = darkMode ? '#191919' : '#f4f4f4';
   const rightFlash = walker.getShoeFlashIntensity('right');
   const leftFlash  = walker.getShoeFlashIntensity('left');
@@ -156,10 +143,12 @@ function frame(now) {
   drawLeg(ctx, walker.leftLeg,  leftFlash,  trouserFill, leftPhase);   // far
   drawLeg(ctx, walker.rightLeg, rightFlash, trouserFill, rightPhase);  // near
 
-  // ── Static + flying stones (drawn AFTER legs) ──
+  // All stones drawn AFTER legs so they're visible on top of the filled
+  // shoe and trouser. In-shoe stones (red) appear on the shoe surface;
+  // static and flying stones appear in front of the foot.
   ctx.save();
   ctx.translate(walker.pelvisX - walker.worldX, 0);
-  drawStones(ctx, groundedFlying);
+  drawStones(ctx, stones.stones);
   ctx.restore();
 
   ctx.restore();
