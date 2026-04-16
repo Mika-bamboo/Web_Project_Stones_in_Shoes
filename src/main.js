@@ -5,9 +5,9 @@
 // up animation-code changes. Bump this in lockstep with index.html's
 // `<script src="src/main.js?v=N">` whenever you touch walker/leg/
 // renderer/stones. Keep all ?v= values identical across the project.
-import { Walker } from './walker.js?v=24';
-import { StoneSystem } from './stones.js?v=24';
-import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=24';
+import { Walker } from './walker.js?v=25';
+import { StoneSystem } from './stones.js?v=25';
+import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=25';
 
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');

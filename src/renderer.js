@@ -83,26 +83,39 @@ const SOLE_PATH = [
 // in the main.js debug overlay as a version fingerprint.
 export const SOLE_DEPTH = 10;
 
-// drawShoe(ctx, ankle, footAngle, flashIntensity = 0)
+// drawShoe(ctx, ankle, footAngle, flashIntensity, shoeFill)
 //
-// `flashIntensity` is a number in [0, 1]. When non-zero, a third stroke
-// pass overlays the shoe outline with a red glow whose alpha equals the
-// intensity — used to flash the shoe red briefly when a stone enters.
-export function drawShoe(ctx, ankle, footAngle, flashIntensity = 0) {
+// `flashIntensity` is a number in [0, 1]. When non-zero, a red glow
+// overlays the shoe. `shoeFill` is a CSS color to fill the shoe
+// interior so it looks solid (hides anything behind it). Pass null
+// for outline-only.
+export function drawShoe(ctx, ankle, footAngle, flashIntensity = 0, shoeFill = null) {
   ctx.save();
   ctx.translate(ankle.x, ankle.y);
-  // Align foot-local +x with the world-space foot direction
-  // (sin footAngle, cos footAngle). `ctx.rotate(θ)` sends (1,0) to
-  // (cos θ, sin θ), so we need θ = π/2 − footAngle.
   ctx.rotate(Math.PI / 2 - footAngle);
 
-  // 1. Upper outline (full SNEAKER polygon, normal stroke).
-  ctx.beginPath();
-  ctx.moveTo(SNEAKER[0].x, SNEAKER[0].y);
-  for (let i = 1; i < SNEAKER.length; i++) {
-    ctx.lineTo(SNEAKER[i].x, SNEAKER[i].y);
+  // Build the SNEAKER path once — reused for fill, stroke, and flash.
+  function traceSneaker() {
+    ctx.beginPath();
+    ctx.moveTo(SNEAKER[0].x, SNEAKER[0].y);
+    for (let i = 1; i < SNEAKER.length; i++) {
+      ctx.lineTo(SNEAKER[i].x, SNEAKER[i].y);
+    }
+    ctx.closePath();
   }
-  ctx.closePath();
+
+  // 1. Solid fill so the shoe interior is opaque (hides the leg
+  //    geometry behind it — no "see-through" hollow shoe).
+  if (shoeFill) {
+    traceSneaker();
+    const savedFill = ctx.fillStyle;
+    ctx.fillStyle = shoeFill;
+    ctx.fill();
+    ctx.fillStyle = savedFill;
+  }
+
+  // 2. Upper outline.
+  traceSneaker();
   ctx.lineWidth = 2;
   ctx.stroke();
 
@@ -299,7 +312,7 @@ export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null, localP
     drawJointDot(ctx, leg.hip,  5);
     drawJointDot(ctx, leg.knee, 4);
   }
-  drawShoe(ctx, leg.ankle, leg.footAngle, flashIntensity);
+  drawShoe(ctx, leg.ankle, leg.footAngle, flashIntensity, trouserFill);
 }
 
 // Scrolling ground: the line stays fixed on screen, but the tick marks
