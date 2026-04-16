@@ -269,8 +269,6 @@ const SHANK_FRONT_PROFILE = [5,   5.5, 5,   4.5, 4,   3.5]; // tibia
 //   fillColor  — CSS color for the fabric fill, or null for outline-only.
 function drawTrouser(ctx, hip, knee, ankle, localPhase, fillColor) {
   // ── Suit trouser half-widths per side, 6 samples each ──
-  // Thigh and shank widths MATCH at the knee: back 10.5, front 10.5
-  // → total 21, so the polygon is continuous across the joint.
   const thighBack  = [12,   12,   12,   11.5, 11,  10.5];
   const thighFront = [11,   12,   12,   11.5, 11,  10.5];
   const shankBack  = [10.5, 11,   10.5, 10,   9.5,  8.5];
@@ -284,25 +282,36 @@ function drawTrouser(ctx, hip, knee, ankle, localPhase, fillColor) {
   const slen = Math.hypot(sdx, sdy);
   if (tlen === 0 || slen === 0) return;
 
-  // Perpendiculars: "back" side of each segment (see drawMuscledTube
-  // comment for the proof that -dy/L always points anatomically backward).
+  // Raw perpendiculars: anatomical "back" side of each segment.
   const tnx = -tdy / tlen, tny = tdx / tlen;
   const snx = -sdy / slen, sny = sdx / slen;
 
-  // Blended perpendicular at the knee — average of thigh and shank
-  // directions, renormalized. This smooths the outline's corner.
+  // Blended knee perpendicular (average of thigh + shank, renormalized).
   let knx = (tnx + snx) / 2, kny = (tny + sny) / 2;
   const klen = Math.hypot(knx, kny) || 1;
   knx /= klen; kny /= klen;
 
+  // ── Gravity-drape blend ──
+  // The trouser is fabric, not a rigid tube. When the leg tilts, the
+  // trouser doesn't foreshorten — it hangs down due to gravity. We
+  // simulate this by blending the perpendicular direction toward pure
+  // horizontal (-1, 0) as overallT increases from hip (0) to ankle (1).
+  // At the hip the trouser follows the leg exactly (waistband is
+  // attached). At the ankle the offset is mostly horizontal (hem hangs).
+  const DRAPE = 0.55;  // 0 = rigid tube, 1 = fully horizontal at ankle
+
+  function drapedPerp(rawNx, rawNy, overallT) {
+    const df = overallT * DRAPE;
+    let dnx = rawNx * (1 - df) + (-1) * df;   // blend toward -x (back)
+    let dny = rawNy * (1 - df);                // blend toward 0 (horizontal)
+    const len = Math.hypot(dnx, dny) || 1;
+    return { x: dnx / len, y: dny / len };
+  }
+
   // ── Phase-driven fabric sway ──
-  const SWAY_AMP = 3;  // max ± px at the ankle
+  const SWAY_AMP = 3;
   const phaseRad = localPhase * 2 * Math.PI;
   function sway(overallT, isFront) {
-    // overallT ∈ [0, 1]: 0 at hip, 1 at ankle.
-    // Sway amplitude scales linearly with overallT so the hip is still
-    // and the hem swings the most. The front side has a slight phase
-    // offset so the two sides don't move in lock-step.
     const offset = isFront ? Math.PI * 0.35 : 0;
     return Math.sin(phaseRad + offset + overallT * 1.2) * SWAY_AMP * overallT;
   }
@@ -311,55 +320,58 @@ function drawTrouser(ctx, hip, knee, ankle, localPhase, fillColor) {
   ctx.beginPath();
 
   // BACK side (hip → knee → ankle)
-  //   thigh: i=0..4 (stop before the knee sample)
   for (let i = 0; i <= N - 2; i++) {
     const t = i / (N - 1);
-    const oT = t * 0.5;   // overallT: 0 at hip, 0.5 at knee
+    const oT = t * 0.5;
     const cx = hip.x + tdx * t, cy = hip.y + tdy * t;
+    const p = drapedPerp(tnx, tny, oT);
     const w = thighBack[i] + sway(oT, false);
-    if (i === 0) ctx.moveTo(cx + tnx * w, cy + tny * w);
-    else         ctx.lineTo(cx + tnx * w, cy + tny * w);
+    if (i === 0) ctx.moveTo(cx + p.x * w, cy + p.y * w);
+    else         ctx.lineTo(cx + p.x * w, cy + p.y * w);
   }
-  //   knee blend point (back)
+  // knee blend (back)
   {
+    const p = drapedPerp(knx, kny, 0.5);
     const w = ((thighBack[N - 1] + shankBack[0]) / 2) + sway(0.5, false);
-    ctx.lineTo(knee.x + knx * w, knee.y + kny * w);
+    ctx.lineTo(knee.x + p.x * w, knee.y + p.y * w);
   }
-  //   shank: i=1..5 (start after the knee sample)
+  // shank (back)
   for (let i = 1; i <= N - 1; i++) {
     const t = i / (N - 1);
-    const oT = 0.5 + t * 0.5;   // 0.5 at knee → 1.0 at ankle
+    const oT = 0.5 + t * 0.5;
     const cx = knee.x + sdx * t, cy = knee.y + sdy * t;
+    const p = drapedPerp(snx, sny, oT);
     const w = shankBack[i] + sway(oT, false);
-    ctx.lineTo(cx + snx * w, cy + sny * w);
+    ctx.lineTo(cx + p.x * w, cy + p.y * w);
   }
 
   // FRONT side (ankle → knee → hip, reversed)
-  //   shank reversed: i=5..1
   for (let i = N - 1; i >= 1; i--) {
     const t = i / (N - 1);
     const oT = 0.5 + t * 0.5;
     const cx = knee.x + sdx * t, cy = knee.y + sdy * t;
+    const p = drapedPerp(snx, sny, oT);
     const w = shankFront[i] + sway(oT, true);
-    ctx.lineTo(cx - snx * w, cy - sny * w);
+    ctx.lineTo(cx - p.x * w, cy - p.y * w);
   }
-  //   knee blend point (front)
+  // knee blend (front)
   {
+    const p = drapedPerp(knx, kny, 0.5);
     const w = ((thighFront[N - 1] + shankFront[0]) / 2) + sway(0.5, true);
-    ctx.lineTo(knee.x - knx * w, knee.y - kny * w);
+    ctx.lineTo(knee.x - p.x * w, knee.y - p.y * w);
   }
-  //   thigh reversed: i=4..0
+  // thigh (front, reversed)
   for (let i = N - 2; i >= 0; i--) {
     const t = i / (N - 1);
     const oT = t * 0.5;
     const cx = hip.x + tdx * t, cy = hip.y + tdy * t;
+    const p = drapedPerp(tnx, tny, oT);
     const w = thighFront[i] + sway(oT, true);
-    ctx.lineTo(cx - tnx * w, cy - tny * w);
+    ctx.lineTo(cx - p.x * w, cy - p.y * w);
   }
 
   ctx.closePath();
 
-  // Fill then stroke.
   if (fillColor) {
     const saved = ctx.fillStyle;
     ctx.fillStyle = fillColor;
