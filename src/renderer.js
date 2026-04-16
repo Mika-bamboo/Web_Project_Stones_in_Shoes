@@ -282,31 +282,56 @@ function drawTrouser(ctx, hip, knee, ankle, localPhase, fillColor) {
   const slen = Math.hypot(sdx, sdy);
   if (tlen === 0 || slen === 0) return;
 
-  // Raw perpendiculars: anatomical "back" side of each segment.
+  // Thigh perpendicular (raw — fabric is stretched over the thigh).
   const tnx = -tdy / tlen, tny = tdx / tlen;
-  const snx = -sdy / slen, sny = sdx / slen;
 
-  // Blended knee perpendicular (average of thigh + shank, renormalized).
-  let knx = (tnx + snx) / 2, kny = (tny + sny) / 2;
+  // ── Gravity-drape for the shank centerline ──
+  // When the knee bends, the trouser below the knee shouldn't follow
+  // the shank backward — it should sag toward "straight down from the
+  // knee" under gravity. We blend the shank centerline's X toward
+  // knee.x using a parabolic envelope: max sag at mid-shank, zero at
+  // both the knee (where the trouser creases) and the ankle (where the
+  // hem meets the shoe). Y stays on the skeleton so the trouser length
+  // matches the visible leg.
+  //
+  // kneeBendFactor drives how much sag: 0 at straight knee, 1 at ~45°+.
+  const thUx = tdx / tlen, thUy = tdy / tlen;
+  const shUx = sdx / slen, shUy = sdy / slen;
+  const cross = Math.abs(thUx * shUy - thUy * shUx);   // |sin(bend angle)|
+  const kneeBendFactor = Math.min(1, cross / 0.7);
+
+  // Blended shank centerline: X pulled toward knee.x by a parabolic
+  // envelope (sin curve, 0 at both ends, peak at mid-shank).
+  function shankCenter(t) {
+    const skelX = knee.x + sdx * t;
+    const skelY = knee.y + sdy * t;
+    const sag = kneeBendFactor * Math.sin(Math.PI * t);
+    return {
+      x: skelX + (knee.x - skelX) * sag,
+      y: skelY,
+    };
+  }
+
+  // Perpendicular of the blended shank centerline, computed via finite
+  // difference on the tangent. The sag makes the curve more vertical,
+  // so its perpendicular becomes more horizontal — exactly the "fabric
+  // width stays horizontal" behavior, but emergent from the centerline
+  // rather than hacked via the offset direction.
+  function shankPerp(t) {
+    const EPS = 0.01;
+    const a = shankCenter(Math.max(0, t - EPS));
+    const b = shankCenter(Math.min(1, t + EPS));
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: -dy / len, y: dx / len };
+  }
+
+  // Blended knee perpendicular: average of thigh perp and shank perp
+  // at t=0 (where the sag is zero, so shankPerp(0) ≈ raw shank perp).
+  const sp0 = shankPerp(0);
+  let knx = (tnx + sp0.x) / 2, kny = (tny + sp0.y) / 2;
   const klen = Math.hypot(knx, kny) || 1;
   knx /= klen; kny /= klen;
-
-  // ── Gravity-drape blend ──
-  // The trouser is fabric, not a rigid tube. When the leg tilts, the
-  // trouser doesn't foreshorten — it hangs down due to gravity. We
-  // simulate this by blending the perpendicular direction toward pure
-  // horizontal (-1, 0) as overallT increases from hip (0) to ankle (1).
-  // At the hip the trouser follows the leg exactly (waistband is
-  // attached). At the ankle the offset is mostly horizontal (hem hangs).
-  const DRAPE = 2.5;  // 0 = rigid tube, ≥2 = fully horizontal from mid-thigh down
-
-  function drapedPerp(rawNx, rawNy, overallT) {
-    const df = Math.min(1, overallT * DRAPE);
-    let dnx = rawNx * (1 - df) + (-1) * df;   // blend toward -x (back)
-    let dny = rawNy * (1 - df);                // blend toward 0 (horizontal)
-    const len = Math.hypot(dnx, dny) || 1;
-    return { x: dnx / len, y: dny / len };
-  }
 
   // ── Phase-driven fabric sway ──
   const SWAY_AMP = 3;
@@ -319,55 +344,51 @@ function drawTrouser(ctx, hip, knee, ankle, localPhase, fillColor) {
   // ── Build the single polygon ──
   ctx.beginPath();
 
-  // BACK side (hip → knee → ankle)
+  // BACK: thigh (hip → near-knee)
   for (let i = 0; i <= N - 2; i++) {
     const t = i / (N - 1);
     const oT = t * 0.5;
     const cx = hip.x + tdx * t, cy = hip.y + tdy * t;
-    const p = drapedPerp(tnx, tny, oT);
     const w = thighBack[i] + sway(oT, false);
-    if (i === 0) ctx.moveTo(cx + p.x * w, cy + p.y * w);
-    else         ctx.lineTo(cx + p.x * w, cy + p.y * w);
+    if (i === 0) ctx.moveTo(cx + tnx * w, cy + tny * w);
+    else         ctx.lineTo(cx + tnx * w, cy + tny * w);
   }
-  // knee blend (back)
+  // BACK: knee blend
   {
-    const p = drapedPerp(knx, kny, 0.5);
     const w = ((thighBack[N - 1] + shankBack[0]) / 2) + sway(0.5, false);
-    ctx.lineTo(knee.x + p.x * w, knee.y + p.y * w);
+    ctx.lineTo(knee.x + knx * w, knee.y + kny * w);
   }
-  // shank (back)
+  // BACK: shank (using gravity-blended centerline)
   for (let i = 1; i <= N - 1; i++) {
     const t = i / (N - 1);
     const oT = 0.5 + t * 0.5;
-    const cx = knee.x + sdx * t, cy = knee.y + sdy * t;
-    const p = drapedPerp(snx, sny, oT);
+    const c = shankCenter(t);
+    const p = shankPerp(t);
     const w = shankBack[i] + sway(oT, false);
-    ctx.lineTo(cx + p.x * w, cy + p.y * w);
+    ctx.lineTo(c.x + p.x * w, c.y + p.y * w);
   }
 
-  // FRONT side (ankle → knee → hip, reversed)
+  // FRONT: shank reversed (using gravity-blended centerline)
   for (let i = N - 1; i >= 1; i--) {
     const t = i / (N - 1);
     const oT = 0.5 + t * 0.5;
-    const cx = knee.x + sdx * t, cy = knee.y + sdy * t;
-    const p = drapedPerp(snx, sny, oT);
+    const c = shankCenter(t);
+    const p = shankPerp(t);
     const w = shankFront[i] + sway(oT, true);
-    ctx.lineTo(cx - p.x * w, cy - p.y * w);
+    ctx.lineTo(c.x - p.x * w, c.y - p.y * w);
   }
-  // knee blend (front)
+  // FRONT: knee blend
   {
-    const p = drapedPerp(knx, kny, 0.5);
     const w = ((thighFront[N - 1] + shankFront[0]) / 2) + sway(0.5, true);
-    ctx.lineTo(knee.x - p.x * w, knee.y - p.y * w);
+    ctx.lineTo(knee.x - knx * w, knee.y - kny * w);
   }
-  // thigh (front, reversed)
+  // FRONT: thigh reversed (knee → hip)
   for (let i = N - 2; i >= 0; i--) {
     const t = i / (N - 1);
     const oT = t * 0.5;
     const cx = hip.x + tdx * t, cy = hip.y + tdy * t;
-    const p = drapedPerp(tnx, tny, oT);
     const w = thighFront[i] + sway(oT, true);
-    ctx.lineTo(cx - p.x * w, cy - p.y * w);
+    ctx.lineTo(cx - tnx * w, cy - tny * w);
   }
 
   ctx.closePath();
