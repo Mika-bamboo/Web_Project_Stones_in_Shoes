@@ -292,7 +292,7 @@ export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null, localP
     ctx.fill();
 
     ctx.fillStyle = savedFill;
-    drawJointDot(ctx, leg.hip, 5);
+    // No joint dots in trouser mode — all joints hidden under fabric.
   } else {
     drawMuscledTube(ctx, leg.hip,  leg.knee,  THIGH_BACK_PROFILE, THIGH_FRONT_PROFILE);
     drawMuscledTube(ctx, leg.knee, leg.ankle, SHANK_BACK_PROFILE, SHANK_FRONT_PROFILE);
