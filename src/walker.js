@@ -14,8 +14,8 @@
 // in screen x" sense — it only touches pelvis.y. It prevents the shoe
 // from cutting through the ground line at all phases.
 
-import { solveLeg } from './leg.js?v=26';
-import { SOLE_POINTS, SOLE_DEPTH } from './renderer.js?v=26';
+import { solveLeg } from './leg.js?v=27';
+import { SOLE_POINTS, SOLE_DEPTH } from './renderer.js?v=27';
 
 const LEG_CONFIG = { thighLen: 80, shankLen: 80, footLen: 30 };
 
@@ -61,6 +61,12 @@ export class Walker {
 
     // Remaining flash time per side, in seconds. Decays each update().
     this.shoeFlash = { right: 0, left: 0 };
+
+    // Lagged ankle positions for trouser hem trailing. Each side stores
+    // a {x, y} that lerps toward the real ankle each frame, giving the
+    // hem a soft-fabric lag during swing. Initialized to null; first
+    // frame copies the real ankle.
+    this._lagState = { right: null, left: null };
   }
 
   // Called by stones.js when a stone enters this shoe — fires a brief
@@ -120,5 +126,32 @@ export class Walker {
       this.rightLeg = solveLeg(this.pelvis, rightPhase, LEG_CONFIG);
       this.leftLeg  = solveLeg(this.pelvis, leftPhase,  LEG_CONFIG);
     }
+
+    // ── Lagged ankle for trouser hem trailing ──
+    // An exponential-decay lerp that makes the trouser hem trail a few
+    // frames behind the actual ankle during swing, simulating soft
+    // fabric inertia. A small gravity sag pulls the lagged point down
+    // so the hem hangs slightly lower than the real ankle.
+    // DECAY_RATE = 15 → 63% caught up in ~67 ms ≈ 4 frames at 60 fps.
+    const HEM_DECAY = 15;
+    const HEM_SAG   = 1.5;  // px downward pull per frame (gravity droop)
+    const k = 1 - Math.exp(-HEM_DECAY * dt);
+    this.rightLeg.laggedAnkle = this._updateLag('right', this.rightLeg.ankle, k, HEM_SAG);
+    this.leftLeg.laggedAnkle  = this._updateLag('left',  this.leftLeg.ankle,  k, HEM_SAG);
+  }
+
+  _updateLag(side, target, k, sag) {
+    let s = this._lagState[side];
+    if (!s) {
+      s = { x: target.x, y: target.y };
+      this._lagState[side] = s;
+      return { x: s.x, y: s.y };
+    }
+    s.x += (target.x - s.x) * k;
+    s.y += (target.y - s.y) * k;
+    s.y += sag;
+    // Don't let the lagged point sag below the ground line.
+    s.y = Math.min(s.y, this.groundY);
+    return { x: s.x, y: s.y };
   }
 }

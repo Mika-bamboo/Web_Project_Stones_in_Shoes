@@ -294,9 +294,14 @@ export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null, localP
     const thighEnd  = { x: leg.knee.x + OV * tdx / tlen, y: leg.knee.y + OV * tdy / tlen };
     const shankStart = { x: leg.knee.x - OV * sdx / slen, y: leg.knee.y - OV * sdy / slen };
 
+    // Trouser hem uses the lagged ankle (if available) so the fabric
+    // trails a few frames behind the real ankle during swing. The shoe
+    // is still drawn at the real ankle position.
+    const hemAnkle = leg.laggedAnkle || leg.ankle;
+
     // Two overlapping filled+stroked tubes with tilt compensation.
     drawMuscledTube(ctx, leg.hip,   thighEnd,  TROUSER_THIGH_BACK, TROUSER_THIGH_FRONT, true, true);
-    drawMuscledTube(ctx, shankStart, leg.ankle, TROUSER_SHANK_BACK, TROUSER_SHANK_FRONT, true, true);
+    drawMuscledTube(ctx, shankStart, hemAnkle,  TROUSER_SHANK_BACK, TROUSER_SHANK_FRONT, true, true);
 
     // Filled knee patch: covers any remaining sliver at the joint.
     const kneeR = (TROUSER_THIGH_BACK[5] + TROUSER_THIGH_FRONT[5]) / 2;
@@ -326,14 +331,14 @@ export function drawGround(ctx, groundY, scrollX, viewWidth) {
   ctx.stroke();
 
   // Tick marks every 50 px, shifted by −scrollX so they slide left.
-  ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.3;
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.5;
   const tickSpacing = 50;
   const offset = ((scrollX % tickSpacing) + tickSpacing) % tickSpacing;
   for (let x = -offset; x <= viewWidth; x += tickSpacing) {
     ctx.beginPath();
     ctx.moveTo(x, groundY);
-    ctx.lineTo(x, groundY + 6);
+    ctx.lineTo(x, groundY + 8);
     ctx.stroke();
   }
   ctx.globalAlpha = 1.0;
