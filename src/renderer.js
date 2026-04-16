@@ -170,48 +170,49 @@ export function drawLegTube(ctx, a, b, width = 14) {
   ctx.stroke();
 }
 
-// drawMuscledTube — a tapered, bulging version of drawLegTube. Given a
-// segment from `a` to `b` and an array of half-widths sampled at evenly
-// spaced points along the segment, traces a smooth polygon around both
-// sides to produce a muscle silhouette.
+// drawMuscledTube — a tapered, asymmetric-bulging muscle shape along
+// the segment from `a` to `b`. Takes two half-width arrays:
 //
-//   halfWidths = [w0, w1, ..., w_{n-1}]
-//   - w0 is the half-width at point `a`
-//   - w_{n-1} is the half-width at point `b`
-//   - intermediate entries control the bulge shape
+//   backWidths[i]  — outward distance on the "+perp" side of the centerline
+//   frontWidths[i] — outward distance on the "-perp" side
 //
-// With n = 6 we get 5 outline segments per side (10 total), enough that
-// the silhouette reads as a smooth muscle curve rather than a stepped
-// polygon. Straight `lineTo` segments keep the math simple; bezier
-// curves would be smoother but are overkill at this scale.
-export function drawMuscledTube(ctx, a, b, halfWidths) {
-  const n = halfWidths.length;
-  if (n < 2) return;
+// The perpendicular (`nx = -dy/L, ny = dx/L`) points to the anatomical
+// *back* of the leg regardless of leg orientation, because our gait
+// curves keep the distal joint below the proximal joint (`dy > 0`) at
+// every phase. So `backWidths` always controls the calf / hamstring
+// side and `frontWidths` always controls the tibia / quadriceps side.
+//
+// Both arrays must be the same length. With n = 6 we get 5 outline
+// segments per side (10 total), enough to read as a smooth curve at
+// ZOOM=1.7 without bezier math.
+export function drawMuscledTube(ctx, a, b, backWidths, frontWidths) {
+  const n = backWidths.length;
+  if (n < 2 || frontWidths.length !== n) return;
   const dx = b.x - a.x, dy = b.y - a.y;
   const len = Math.hypot(dx, dy);
   if (len === 0) return;
 
-  // Perpendicular unit vector (to the left of a→b, standard rotation).
+  // Perpendicular pointing to the anatomical back side of the leg.
   const nx = -dy / len, ny = dx / len;
 
   ctx.beginPath();
-  // Right side, from a to b (increasing t).
+  // Back side (+perp), walking a → b.
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1);
     const cx = a.x + dx * t;
     const cy = a.y + dy * t;
-    const w = halfWidths[i];
+    const w = backWidths[i];
     const px = cx + nx * w;
     const py = cy + ny * w;
     if (i === 0) ctx.moveTo(px, py);
     else ctx.lineTo(px, py);
   }
-  // Left side, walking back from b to a (decreasing t).
+  // Front side (-perp), walking b → a (reverse order so the polygon closes cleanly).
   for (let i = n - 1; i >= 0; i--) {
     const t = i / (n - 1);
     const cx = a.x + dx * t;
     const cy = a.y + dy * t;
-    const w = halfWidths[i];
+    const w = frontWidths[i];
     ctx.lineTo(cx - nx * w, cy - ny * w);
   }
   ctx.closePath();
@@ -219,12 +220,20 @@ export function drawMuscledTube(ctx, a, b, halfWidths) {
   ctx.stroke();
 }
 
-// Half-width profiles for the two leg segments. Values are sampled at
-// 6 evenly-spaced points from the proximal joint (hip or knee) to the
-// distal joint (knee or ankle). The bulge sits in the upper-middle of
-// each segment — quadriceps for the thigh, gastrocnemius for the shank.
-const THIGH_PROFILE = [7, 8.5, 9, 8, 7, 6.5];   // hip → knee
-const SHANK_PROFILE = [6, 7,   8, 7, 5.5, 4.5]; // knee → ankle
+// Anatomically-asymmetric muscle profiles. Each pair gives half-widths
+// for the back and front of the segment, sampled at 6 evenly-spaced
+// points from the proximal joint to the distal joint.
+//
+// Thigh: quadriceps (front) is a bit thicker than hamstrings (back),
+// with a glute tuck at the hip on the back side; both sides meet at a
+// narrow knee.
+const THIGH_BACK_PROFILE  = [9,   9,   8,   7.5, 6.5, 6];   // hamstring + glute
+const THIGH_FRONT_PROFILE = [7,   9,   9.5, 8.5, 7,   6];   // quadriceps
+
+// Shank: pronounced calf bulge (high on the shank, around t=0.2) on the
+// back side; the front is nearly flat (tibia bone), tapering gently.
+const SHANK_BACK_PROFILE  = [6,  10,  9.5, 7,   5.5, 4.5]; // gastrocnemius
+const SHANK_FRONT_PROFILE = [5,   5.5, 5,   4.5, 4,   3.5]; // tibia
 
 export function drawJointDot(ctx, pos, radius = 4) {
   ctx.beginPath();
@@ -234,11 +243,12 @@ export function drawJointDot(ctx, pos, radius = 4) {
 
 // drawLeg(ctx, leg, flashIntensity = 0) — flashIntensity is forwarded
 // to drawShoe so the shoe of this leg flashes red when set.
-// Thigh and shank are drawn with tapered muscle profiles rather than
-// flat tubes: quadriceps bulge on the thigh, calf bulge on the shank.
+// Thigh and shank are drawn with asymmetric muscle profiles: the back
+// of each segment (calf / hamstring / glute) is anatomically thicker
+// than the front (tibia / quadriceps).
 export function drawLeg(ctx, leg, flashIntensity = 0) {
-  drawMuscledTube(ctx, leg.hip,  leg.knee,  THIGH_PROFILE);   // thigh
-  drawMuscledTube(ctx, leg.knee, leg.ankle, SHANK_PROFILE);   // shank
+  drawMuscledTube(ctx, leg.hip,  leg.knee,  THIGH_BACK_PROFILE, THIGH_FRONT_PROFILE);
+  drawMuscledTube(ctx, leg.knee, leg.ankle, SHANK_BACK_PROFILE, SHANK_FRONT_PROFILE);
   drawShoe      (ctx, leg.ankle, leg.footAngle, flashIntensity);
   drawJointDot  (ctx, leg.hip,  5);
   drawJointDot  (ctx, leg.knee, 4);
