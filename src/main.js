@@ -5,9 +5,9 @@
 // up animation-code changes. Bump this in lockstep with index.html's
 // `<script src="src/main.js?v=N">` whenever you touch walker/leg/
 // renderer/stones. Keep all ?v= values identical across the project.
-import { Walker } from './walker.js?v=18';
-import { StoneSystem } from './stones.js?v=18';
-import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=18';
+import { Walker } from './walker.js?v=19';
+import { StoneSystem } from './stones.js?v=19';
+import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=19';
 
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
@@ -144,18 +144,17 @@ function frame(now) {
   drawStones(ctx, inShoeStones);
   ctx.restore();
 
-  // Legs — back leg first for correct occlusion. Each leg carries its
-  // own shoe-flash intensity (0..1) so that drawShoe knows whether to
-  // overlay a red glow when a stone just entered. localPhase drives the
-  // trouser sway so the fabric flutters naturally with the gait cycle.
+  // Legs — right leg is always drawn LAST so it reads as closer to the
+  // camera. The filled trouser of the right leg occludes the left leg's
+  // outline wherever they overlap. (Previously sorted by ankle.x, which
+  // swapped the depth order every half-cycle and looked flickery.)
   const trouserFill = darkMode ? '#191919' : '#f4f4f4';
-  const legsWithFlash = [
-    { leg: walker.rightLeg, flash: walker.getShoeFlashIntensity('right'), phase: walker.phase },
-    { leg: walker.leftLeg,  flash: walker.getShoeFlashIntensity('left'),  phase: (walker.phase + 0.5) % 1 },
-  ];
-  legsWithFlash.sort((a, b) => a.leg.ankle.x - b.leg.ankle.x);
-  drawLeg(ctx, legsWithFlash[0].leg, legsWithFlash[0].flash, trouserFill, legsWithFlash[0].phase);
-  drawLeg(ctx, legsWithFlash[1].leg, legsWithFlash[1].flash, trouserFill, legsWithFlash[1].phase);
+  const rightFlash = walker.getShoeFlashIntensity('right');
+  const leftFlash  = walker.getShoeFlashIntensity('left');
+  const rightPhase = walker.phase;
+  const leftPhase  = (walker.phase + 0.5) % 1;
+  drawLeg(ctx, walker.leftLeg,  leftFlash,  trouserFill, leftPhase);   // far
+  drawLeg(ctx, walker.rightLeg, rightFlash, trouserFill, rightPhase);  // near
 
   // ── Static + flying stones (drawn AFTER legs) ──
   ctx.save();
