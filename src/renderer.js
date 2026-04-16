@@ -241,16 +241,134 @@ const SHANK_BACK_PROFILE  = [6,  10,  9.5, 7,   5.5, 4.5]; // gastrocnemius
 const SHANK_FRONT_PROFILE = [5,   5.5, 5,   4.5, 4,   3.5]; // tibia
 
 // ── Trouser profiles ────────────────────────────────────────────────
-// Wider and smoother than the bare-muscle profiles: fabric hides the
-// muscle contour and adds ~2–3 px of bulk on each side. These replace
-// the muscle profiles when trousers are drawn.
+// Removed. The old two-segment trouser used separate thigh and shank
+// profiles via drawMuscledTube. Replaced by drawTrouser (below), which
+// draws one continuous polygon from hip to ankle with blended knee
+// perpendiculars, loose-suit widths, and phase-driven sway.
+
+// ── Single-piece suit trouser ──────────────────────────────────────
+// Draws a SINGLE filled + stroked polygon from hip to ankle, with:
 //
-// Thigh trouser: barely asymmetric; fabric drapes nearly evenly.
-const TROUSER_THIGH_BACK  = [10.5, 10.5, 10, 9.5, 8.5, 7.5];
-const TROUSER_THIGH_FRONT = [10,   10.5, 10, 9.5, 8.5, 7.5];
-// Shank trouser: straighter than the bare calf; fabric hides the bulge.
-const TROUSER_SHANK_BACK  = [7.5,  8,  8,  7.5, 7,   5.5];
-const TROUSER_SHANK_FRONT = [7,    8,  7.5, 7,  6.5, 5];
+//  1. Suit-trouser widths — wide, straight, barely tapered, symmetric
+//     front/back (fabric hides muscle contour). Totals: thigh 23–24,
+//     shank 17–22, matching at the knee (21) for continuity.
+//
+//  2. Blended knee perpendicular — the thigh segment's perpendicular
+//     and the shank segment's perpendicular are averaged at the knee,
+//     so the trouser outline transitions smoothly around the bend
+//     instead of showing a seam/gap between two separate shapes.
+//
+//  3. Phase-driven fabric sway — a sinusoidal offset (±SWAY_AMP px at
+//     the ankle, 0 at the hip) that oscillates with the leg's local
+//     gait phase, giving the hem a natural flutter as the leg swings.
+//     Back and front sides sway slightly out of phase for realism.
+//
+// Parameters:
+//   hip, knee, ankle — world-space joint positions from solveLeg.
+//   localPhase — this leg's local gait phase (0–1); drives the sway.
+//   fillColor  — CSS color for the fabric fill, or null for outline-only.
+function drawTrouser(ctx, hip, knee, ankle, localPhase, fillColor) {
+  // ── Suit trouser half-widths per side, 6 samples each ──
+  // Thigh and shank widths MATCH at the knee: back 10.5, front 10.5
+  // → total 21, so the polygon is continuous across the joint.
+  const thighBack  = [12,   12,   12,   11.5, 11,  10.5];
+  const thighFront = [11,   12,   12,   11.5, 11,  10.5];
+  const shankBack  = [10.5, 11,   10.5, 10,   9.5,  8.5];
+  const shankFront = [10.5, 11,   10.5, 10,   9.5,  8.5];
+  const N = 6;
+
+  // ── Segment geometry ──
+  const tdx = knee.x - hip.x,   tdy = knee.y - hip.y;
+  const sdx = ankle.x - knee.x, sdy = ankle.y - knee.y;
+  const tlen = Math.hypot(tdx, tdy);
+  const slen = Math.hypot(sdx, sdy);
+  if (tlen === 0 || slen === 0) return;
+
+  // Perpendiculars: "back" side of each segment (see drawMuscledTube
+  // comment for the proof that -dy/L always points anatomically backward).
+  const tnx = -tdy / tlen, tny = tdx / tlen;
+  const snx = -sdy / slen, sny = sdx / slen;
+
+  // Blended perpendicular at the knee — average of thigh and shank
+  // directions, renormalized. This smooths the outline's corner.
+  let knx = (tnx + snx) / 2, kny = (tny + sny) / 2;
+  const klen = Math.hypot(knx, kny) || 1;
+  knx /= klen; kny /= klen;
+
+  // ── Phase-driven fabric sway ──
+  const SWAY_AMP = 3;  // max ± px at the ankle
+  const phaseRad = localPhase * 2 * Math.PI;
+  function sway(overallT, isFront) {
+    // overallT ∈ [0, 1]: 0 at hip, 1 at ankle.
+    // Sway amplitude scales linearly with overallT so the hip is still
+    // and the hem swings the most. The front side has a slight phase
+    // offset so the two sides don't move in lock-step.
+    const offset = isFront ? Math.PI * 0.35 : 0;
+    return Math.sin(phaseRad + offset + overallT * 1.2) * SWAY_AMP * overallT;
+  }
+
+  // ── Build the single polygon ──
+  ctx.beginPath();
+
+  // BACK side (hip → knee → ankle)
+  //   thigh: i=0..4 (stop before the knee sample)
+  for (let i = 0; i <= N - 2; i++) {
+    const t = i / (N - 1);
+    const oT = t * 0.5;   // overallT: 0 at hip, 0.5 at knee
+    const cx = hip.x + tdx * t, cy = hip.y + tdy * t;
+    const w = thighBack[i] + sway(oT, false);
+    if (i === 0) ctx.moveTo(cx + tnx * w, cy + tny * w);
+    else         ctx.lineTo(cx + tnx * w, cy + tny * w);
+  }
+  //   knee blend point (back)
+  {
+    const w = ((thighBack[N - 1] + shankBack[0]) / 2) + sway(0.5, false);
+    ctx.lineTo(knee.x + knx * w, knee.y + kny * w);
+  }
+  //   shank: i=1..5 (start after the knee sample)
+  for (let i = 1; i <= N - 1; i++) {
+    const t = i / (N - 1);
+    const oT = 0.5 + t * 0.5;   // 0.5 at knee → 1.0 at ankle
+    const cx = knee.x + sdx * t, cy = knee.y + sdy * t;
+    const w = shankBack[i] + sway(oT, false);
+    ctx.lineTo(cx + snx * w, cy + sny * w);
+  }
+
+  // FRONT side (ankle → knee → hip, reversed)
+  //   shank reversed: i=5..1
+  for (let i = N - 1; i >= 1; i--) {
+    const t = i / (N - 1);
+    const oT = 0.5 + t * 0.5;
+    const cx = knee.x + sdx * t, cy = knee.y + sdy * t;
+    const w = shankFront[i] + sway(oT, true);
+    ctx.lineTo(cx - snx * w, cy - sny * w);
+  }
+  //   knee blend point (front)
+  {
+    const w = ((thighFront[N - 1] + shankFront[0]) / 2) + sway(0.5, true);
+    ctx.lineTo(knee.x - knx * w, knee.y - kny * w);
+  }
+  //   thigh reversed: i=4..0
+  for (let i = N - 2; i >= 0; i--) {
+    const t = i / (N - 1);
+    const oT = t * 0.5;
+    const cx = hip.x + tdx * t, cy = hip.y + tdy * t;
+    const w = thighFront[i] + sway(oT, true);
+    ctx.lineTo(cx - tnx * w, cy - tny * w);
+  }
+
+  ctx.closePath();
+
+  // Fill then stroke.
+  if (fillColor) {
+    const saved = ctx.fillStyle;
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+    ctx.fillStyle = saved;
+  }
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
 
 export function drawJointDot(ctx, pos, radius = 4) {
   ctx.beginPath();
@@ -258,30 +376,25 @@ export function drawJointDot(ctx, pos, radius = 4) {
   ctx.fill();
 }
 
-// drawLeg(ctx, leg, flashIntensity, trouserFill)
+// drawLeg(ctx, leg, flashIntensity, trouserFill, localPhase)
 //
-// When `trouserFill` is a CSS color string, the leg segments are drawn
-// with the wider trouser profiles and filled with that color so the
-// fabric looks solid and the front leg cleanly occludes the back leg.
-// When `trouserFill` is null/undefined, bare-muscle profiles are used
-// with no fill (outline-only, original stick-figure look).
-//
-// `flashIntensity` (0..1) is forwarded to drawShoe for the red-glow
-// flash when a stone enters.
-export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null) {
+// When `trouserFill` is a CSS color, draws a single-piece suit trouser
+// from hip to ankle (continuous, no knee gap) using drawTrouser, with
+// phase-driven fabric sway. Only the hip dot is drawn (knee is hidden
+// under the fabric). When `trouserFill` is null, bare-muscle outlines
+// are drawn with both joint dots.
+export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null, localPhase = 0) {
   if (trouserFill) {
-    const savedFill = ctx.fillStyle;
-    ctx.fillStyle = trouserFill;
-    drawMuscledTube(ctx, leg.hip,  leg.knee,  TROUSER_THIGH_BACK, TROUSER_THIGH_FRONT, true);
-    drawMuscledTube(ctx, leg.knee, leg.ankle, TROUSER_SHANK_BACK, TROUSER_SHANK_FRONT, true);
-    ctx.fillStyle = savedFill;   // restore for joint dots (which use fill for the dot)
+    drawTrouser(ctx, leg.hip, leg.knee, leg.ankle, localPhase, trouserFill);
+    drawJointDot(ctx, leg.hip, 5);     // waistband marker — visible
+    // knee dot omitted: hidden under fabric
   } else {
     drawMuscledTube(ctx, leg.hip,  leg.knee,  THIGH_BACK_PROFILE, THIGH_FRONT_PROFILE);
     drawMuscledTube(ctx, leg.knee, leg.ankle, SHANK_BACK_PROFILE, SHANK_FRONT_PROFILE);
+    drawJointDot(ctx, leg.hip,  5);
+    drawJointDot(ctx, leg.knee, 4);
   }
-  drawShoe    (ctx, leg.ankle, leg.footAngle, flashIntensity);
-  drawJointDot(ctx, leg.hip,  5);
-  drawJointDot(ctx, leg.knee, 4);
+  drawShoe(ctx, leg.ankle, leg.footAngle, flashIntensity);
 }
 
 // Scrolling ground: the line stays fixed on screen, but the tick marks
