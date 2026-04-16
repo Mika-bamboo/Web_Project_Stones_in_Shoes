@@ -185,7 +185,7 @@ export function drawLegTube(ctx, a, b, width = 14) {
 // Both arrays must be the same length. With n = 6 we get 5 outline
 // segments per side (10 total), enough to read as a smooth curve at
 // ZOOM=1.7 without bezier math.
-export function drawMuscledTube(ctx, a, b, backWidths, frontWidths, doFill = false) {
+export function drawMuscledTube(ctx, a, b, backWidths, frontWidths, doFill = false, compensateTilt = false) {
   const n = backWidths.length;
   if (n < 2 || frontWidths.length !== n) return;
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -195,13 +195,21 @@ export function drawMuscledTube(ctx, a, b, backWidths, frontWidths, doFill = fal
   // Perpendicular pointing to the anatomical back side of the leg.
   const nx = -dy / len, ny = dx / len;
 
+  // Width compensation: when the segment tilts, the perpendicular
+  // rotates and the HORIZONTAL extent of the tube shrinks. Scaling
+  // widths by 1/|nx| restores the horizontal extent to its base value.
+  // Capped at 1.3 to prevent ballooning at extreme angles.
+  const tiltScale = compensateTilt
+    ? Math.min(1.3, 1 / Math.max(0.5, Math.abs(nx)))
+    : 1;
+
   ctx.beginPath();
   // Back side (+perp), walking a → b.
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1);
     const cx = a.x + dx * t;
     const cy = a.y + dy * t;
-    const w = backWidths[i];
+    const w = backWidths[i] * tiltScale;
     const px = cx + nx * w;
     const py = cy + ny * w;
     if (i === 0) ctx.moveTo(px, py);
@@ -212,14 +220,10 @@ export function drawMuscledTube(ctx, a, b, backWidths, frontWidths, doFill = fal
     const t = i / (n - 1);
     const cx = a.x + dx * t;
     const cy = a.y + dy * t;
-    const w = frontWidths[i];
+    const w = frontWidths[i] * tiltScale;
     ctx.lineTo(cx - nx * w, cy - ny * w);
   }
   ctx.closePath();
-  // When doFill is true, fill the polygon with whatever ctx.fillStyle
-  // the caller set (typically a trouser / background color) before
-  // stroking the outline. This gives the fabric a solid look and
-  // ensures the front leg cleanly occludes the back leg.
   if (doFill) ctx.fill();
   ctx.lineWidth = 2;
   ctx.stroke();
@@ -241,167 +245,12 @@ const SHANK_BACK_PROFILE  = [6,  10,  9.5, 7,   5.5, 4.5]; // gastrocnemius
 const SHANK_FRONT_PROFILE = [5,   5.5, 5,   4.5, 4,   3.5]; // tibia
 
 // ── Trouser profiles ────────────────────────────────────────────────
-// Removed. The old two-segment trouser used separate thigh and shank
-// profiles via drawMuscledTube. Replaced by drawTrouser (below), which
-// draws one continuous polygon from hip to ankle with blended knee
-// perpendiculars, loose-suit widths, and phase-driven sway.
-
-// ── Single-piece suit trouser ──────────────────────────────────────
-// Draws a SINGLE filled + stroked polygon from hip to ankle, with:
-//
-//  1. Suit-trouser widths — wide, straight, barely tapered, symmetric
-//     front/back (fabric hides muscle contour). Totals: thigh 23–24,
-//     shank 17–22, matching at the knee (21) for continuity.
-//
-//  2. Blended knee perpendicular — the thigh segment's perpendicular
-//     and the shank segment's perpendicular are averaged at the knee,
-//     so the trouser outline transitions smoothly around the bend
-//     instead of showing a seam/gap between two separate shapes.
-//
-//  3. Phase-driven fabric sway — a sinusoidal offset (±SWAY_AMP px at
-//     the ankle, 0 at the hip) that oscillates with the leg's local
-//     gait phase, giving the hem a natural flutter as the leg swings.
-//     Back and front sides sway slightly out of phase for realism.
-//
-// Parameters:
-//   hip, knee, ankle — world-space joint positions from solveLeg.
-//   localPhase — this leg's local gait phase (0–1); drives the sway.
-//   fillColor  — CSS color for the fabric fill, or null for outline-only.
-function drawTrouser(ctx, hip, knee, ankle, localPhase, fillColor) {
-  // ── Suit trouser half-widths per side, 6 samples each ──
-  const thighBack  = [12,   12,   12,   11.5, 11,  10.5];
-  const thighFront = [11,   12,   12,   11.5, 11,  10.5];
-  const shankBack  = [10.5, 11,   10.5, 10,   9.5,  8.5];
-  const shankFront = [10.5, 11,   10.5, 10,   9.5,  8.5];
-  const N = 6;
-
-  // ── Segment geometry ──
-  const tdx = knee.x - hip.x,   tdy = knee.y - hip.y;
-  const sdx = ankle.x - knee.x, sdy = ankle.y - knee.y;
-  const tlen = Math.hypot(tdx, tdy);
-  const slen = Math.hypot(sdx, sdy);
-  if (tlen === 0 || slen === 0) return;
-
-  // Thigh perpendicular (raw — fabric is stretched over the thigh).
-  const tnx = -tdy / tlen, tny = tdx / tlen;
-
-  // ── Gravity-drape for the shank centerline ──
-  // When the knee bends, the trouser below the knee shouldn't follow
-  // the shank backward — it should sag toward "straight down from the
-  // knee" under gravity. We blend the shank centerline's X toward
-  // knee.x using a parabolic envelope: max sag at mid-shank, zero at
-  // both the knee (where the trouser creases) and the ankle (where the
-  // hem meets the shoe). Y stays on the skeleton so the trouser length
-  // matches the visible leg.
-  //
-  // kneeBendFactor drives how much sag: 0 at straight knee, 1 at ~45°+.
-  const thUx = tdx / tlen, thUy = tdy / tlen;
-  const shUx = sdx / slen, shUy = sdy / slen;
-  const cross = Math.abs(thUx * shUy - thUy * shUx);   // |sin(bend angle)|
-  const kneeBendFactor = Math.min(1, cross / 0.7);
-
-  // Blended shank centerline: X pulled toward knee.x by a parabolic
-  // envelope (sin curve, 0 at both ends, peak at mid-shank).
-  function shankCenter(t) {
-    const skelX = knee.x + sdx * t;
-    const skelY = knee.y + sdy * t;
-    const sag = kneeBendFactor * Math.sin(Math.PI * t);
-    return {
-      x: skelX + (knee.x - skelX) * sag,
-      y: skelY,
-    };
-  }
-
-  // Perpendicular of the blended shank centerline, computed via finite
-  // difference on the tangent. The sag makes the curve more vertical,
-  // so its perpendicular becomes more horizontal — exactly the "fabric
-  // width stays horizontal" behavior, but emergent from the centerline
-  // rather than hacked via the offset direction.
-  function shankPerp(t) {
-    const EPS = 0.01;
-    const a = shankCenter(Math.max(0, t - EPS));
-    const b = shankCenter(Math.min(1, t + EPS));
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const len = Math.hypot(dx, dy) || 1;
-    return { x: -dy / len, y: dx / len };
-  }
-
-  // Blended knee perpendicular: average of thigh perp and shank perp
-  // at t=0 (where the sag is zero, so shankPerp(0) ≈ raw shank perp).
-  const sp0 = shankPerp(0);
-  let knx = (tnx + sp0.x) / 2, kny = (tny + sp0.y) / 2;
-  const klen = Math.hypot(knx, kny) || 1;
-  knx /= klen; kny /= klen;
-
-  // ── Phase-driven fabric sway ──
-  const SWAY_AMP = 3;
-  const phaseRad = localPhase * 2 * Math.PI;
-  function sway(overallT, isFront) {
-    const offset = isFront ? Math.PI * 0.35 : 0;
-    return Math.sin(phaseRad + offset + overallT * 1.2) * SWAY_AMP * overallT;
-  }
-
-  // ── Build the single polygon ──
-  ctx.beginPath();
-
-  // BACK: thigh (hip → near-knee)
-  for (let i = 0; i <= N - 2; i++) {
-    const t = i / (N - 1);
-    const oT = t * 0.5;
-    const cx = hip.x + tdx * t, cy = hip.y + tdy * t;
-    const w = thighBack[i] + sway(oT, false);
-    if (i === 0) ctx.moveTo(cx + tnx * w, cy + tny * w);
-    else         ctx.lineTo(cx + tnx * w, cy + tny * w);
-  }
-  // BACK: knee blend
-  {
-    const w = ((thighBack[N - 1] + shankBack[0]) / 2) + sway(0.5, false);
-    ctx.lineTo(knee.x + knx * w, knee.y + kny * w);
-  }
-  // BACK: shank (using gravity-blended centerline)
-  for (let i = 1; i <= N - 1; i++) {
-    const t = i / (N - 1);
-    const oT = 0.5 + t * 0.5;
-    const c = shankCenter(t);
-    const p = shankPerp(t);
-    const w = shankBack[i] + sway(oT, false);
-    ctx.lineTo(c.x + p.x * w, c.y + p.y * w);
-  }
-
-  // FRONT: shank reversed (using gravity-blended centerline)
-  for (let i = N - 1; i >= 1; i--) {
-    const t = i / (N - 1);
-    const oT = 0.5 + t * 0.5;
-    const c = shankCenter(t);
-    const p = shankPerp(t);
-    const w = shankFront[i] + sway(oT, true);
-    ctx.lineTo(c.x - p.x * w, c.y - p.y * w);
-  }
-  // FRONT: knee blend
-  {
-    const w = ((thighFront[N - 1] + shankFront[0]) / 2) + sway(0.5, true);
-    ctx.lineTo(knee.x - knx * w, knee.y - kny * w);
-  }
-  // FRONT: thigh reversed (knee → hip)
-  for (let i = N - 2; i >= 0; i--) {
-    const t = i / (N - 1);
-    const oT = t * 0.5;
-    const cx = hip.x + tdx * t, cy = hip.y + tdy * t;
-    const w = thighFront[i] + sway(oT, true);
-    ctx.lineTo(cx - tnx * w, cy - tny * w);
-  }
-
-  ctx.closePath();
-
-  if (fillColor) {
-    const saved = ctx.fillStyle;
-    ctx.fillStyle = fillColor;
-    ctx.fill();
-    ctx.fillStyle = saved;
-  }
-  ctx.lineWidth = 2;
-  ctx.stroke();
-}
+// Wider and smoother than the bare-muscle profiles. Symmetric back/front
+// because fabric hides the underlying muscle contour.
+const TROUSER_THIGH_BACK  = [12,   12,   12,   11.5, 11,  10.5];
+const TROUSER_THIGH_FRONT = [11,   12,   12,   11.5, 11,  10.5];
+const TROUSER_SHANK_BACK  = [10.5, 11,   10.5, 10,   9.5,  8.5];
+const TROUSER_SHANK_FRONT = [10.5, 11,   10.5, 10,   9.5,  8.5];
 
 export function drawJointDot(ctx, pos, radius = 4) {
   ctx.beginPath();
@@ -411,16 +260,39 @@ export function drawJointDot(ctx, pos, radius = 4) {
 
 // drawLeg(ctx, leg, flashIntensity, trouserFill, localPhase)
 //
-// When `trouserFill` is a CSS color, draws a single-piece suit trouser
-// from hip to ankle (continuous, no knee gap) using drawTrouser, with
-// phase-driven fabric sway. Only the hip dot is drawn (knee is hidden
-// under the fabric). When `trouserFill` is null, bare-muscle outlines
-// are drawn with both joint dots.
+// When `trouserFill` is set, draws the trouser as TWO overlapping filled
+// tubes (thigh + shank) with a filled knee patch to hide the seam. Each
+// tube extends 5 px past the knee so they overlap under the same fill
+// color. Width compensation (`1/|nx|`, capped) keeps the horizontal
+// extent constant regardless of leg tilt.
+//
+// When null, bare-muscle outlines with no fill.
 export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null, localPhase = 0) {
   if (trouserFill) {
-    drawTrouser(ctx, leg.hip, leg.knee, leg.ankle, localPhase, trouserFill);
-    drawJointDot(ctx, leg.hip, 5);     // waistband marker — visible
-    // knee dot omitted: hidden under fabric
+    const savedFill = ctx.fillStyle;
+    ctx.fillStyle = trouserFill;
+
+    // Extend each tube 5 px past the knee for seamless overlap.
+    const tdx = leg.knee.x - leg.hip.x,   tdy = leg.knee.y - leg.hip.y;
+    const sdx = leg.ankle.x - leg.knee.x, sdy = leg.ankle.y - leg.knee.y;
+    const tlen = Math.hypot(tdx, tdy) || 1;
+    const slen = Math.hypot(sdx, sdy) || 1;
+    const OV = 5;
+    const thighEnd  = { x: leg.knee.x + OV * tdx / tlen, y: leg.knee.y + OV * tdy / tlen };
+    const shankStart = { x: leg.knee.x - OV * sdx / slen, y: leg.knee.y - OV * sdy / slen };
+
+    // Two overlapping filled+stroked tubes with tilt compensation.
+    drawMuscledTube(ctx, leg.hip,   thighEnd,  TROUSER_THIGH_BACK, TROUSER_THIGH_FRONT, true, true);
+    drawMuscledTube(ctx, shankStart, leg.ankle, TROUSER_SHANK_BACK, TROUSER_SHANK_FRONT, true, true);
+
+    // Filled knee patch: covers any remaining sliver at the joint.
+    const kneeR = (TROUSER_THIGH_BACK[5] + TROUSER_THIGH_FRONT[5]) / 2;
+    ctx.beginPath();
+    ctx.arc(leg.knee.x, leg.knee.y, kneeR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = savedFill;
+    drawJointDot(ctx, leg.hip, 5);
   } else {
     drawMuscledTube(ctx, leg.hip,  leg.knee,  THIGH_BACK_PROFILE, THIGH_FRONT_PROFILE);
     drawMuscledTube(ctx, leg.knee, leg.ankle, SHANK_BACK_PROFILE, SHANK_FRONT_PROFILE);
