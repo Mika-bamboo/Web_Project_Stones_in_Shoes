@@ -170,6 +170,62 @@ export function drawLegTube(ctx, a, b, width = 14) {
   ctx.stroke();
 }
 
+// drawMuscledTube — a tapered, bulging version of drawLegTube. Given a
+// segment from `a` to `b` and an array of half-widths sampled at evenly
+// spaced points along the segment, traces a smooth polygon around both
+// sides to produce a muscle silhouette.
+//
+//   halfWidths = [w0, w1, ..., w_{n-1}]
+//   - w0 is the half-width at point `a`
+//   - w_{n-1} is the half-width at point `b`
+//   - intermediate entries control the bulge shape
+//
+// With n = 6 we get 5 outline segments per side (10 total), enough that
+// the silhouette reads as a smooth muscle curve rather than a stepped
+// polygon. Straight `lineTo` segments keep the math simple; bezier
+// curves would be smoother but are overkill at this scale.
+export function drawMuscledTube(ctx, a, b, halfWidths) {
+  const n = halfWidths.length;
+  if (n < 2) return;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return;
+
+  // Perpendicular unit vector (to the left of a→b, standard rotation).
+  const nx = -dy / len, ny = dx / len;
+
+  ctx.beginPath();
+  // Right side, from a to b (increasing t).
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const cx = a.x + dx * t;
+    const cy = a.y + dy * t;
+    const w = halfWidths[i];
+    const px = cx + nx * w;
+    const py = cy + ny * w;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  // Left side, walking back from b to a (decreasing t).
+  for (let i = n - 1; i >= 0; i--) {
+    const t = i / (n - 1);
+    const cx = a.x + dx * t;
+    const cy = a.y + dy * t;
+    const w = halfWidths[i];
+    ctx.lineTo(cx - nx * w, cy - ny * w);
+  }
+  ctx.closePath();
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+// Half-width profiles for the two leg segments. Values are sampled at
+// 6 evenly-spaced points from the proximal joint (hip or knee) to the
+// distal joint (knee or ankle). The bulge sits in the upper-middle of
+// each segment — quadriceps for the thigh, gastrocnemius for the shank.
+const THIGH_PROFILE = [7, 8.5, 9, 8, 7, 6.5];   // hip → knee
+const SHANK_PROFILE = [6, 7,   8, 7, 5.5, 4.5]; // knee → ankle
+
 export function drawJointDot(ctx, pos, radius = 4) {
   ctx.beginPath();
   ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
@@ -178,12 +234,14 @@ export function drawJointDot(ctx, pos, radius = 4) {
 
 // drawLeg(ctx, leg, flashIntensity = 0) — flashIntensity is forwarded
 // to drawShoe so the shoe of this leg flashes red when set.
+// Thigh and shank are drawn with tapered muscle profiles rather than
+// flat tubes: quadriceps bulge on the thigh, calf bulge on the shank.
 export function drawLeg(ctx, leg, flashIntensity = 0) {
-  drawLegTube(ctx, leg.hip,  leg.knee,  16);                   // thigh
-  drawLegTube(ctx, leg.knee, leg.ankle, 14);                   // shank
-  drawShoe  (ctx, leg.ankle, leg.footAngle, flashIntensity);
-  drawJointDot(ctx, leg.hip,  5);
-  drawJointDot(ctx, leg.knee, 4);
+  drawMuscledTube(ctx, leg.hip,  leg.knee,  THIGH_PROFILE);   // thigh
+  drawMuscledTube(ctx, leg.knee, leg.ankle, SHANK_PROFILE);   // shank
+  drawShoe      (ctx, leg.ankle, leg.footAngle, flashIntensity);
+  drawJointDot  (ctx, leg.hip,  5);
+  drawJointDot  (ctx, leg.knee, 4);
 }
 
 // Scrolling ground: the line stays fixed on screen, but the tick marks
