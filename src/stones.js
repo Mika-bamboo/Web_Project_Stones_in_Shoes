@@ -55,6 +55,13 @@ const DESPAWN_DISTANCE  = 600;   // remove stones this far behind the walker
 const SPAWN_MIN_GAP     = 35;    // minimum world-x spacing between stones
 const SPAWN_MAX_GAP     = 130;   // maximum world-x spacing between stones
 
+// Per-foot cap on in-shoe stones. Without a cap, trapped stones are
+// pinned to the walker's feet indefinitely — they never fall behind the
+// despawn cutoff — so a long session grows the stones array and the
+// per-frame work linearly with walking time. Oldest-first FIFO eviction
+// runs in _despawnBehind so the visible count plateaus at this value.
+const MAX_IN_SHOE_PER_FOOT = 20;
+
 // Collar-opening edges in foot-local coordinates. These are the three
 // segments of the V-shaped notch at the top of the SNEAKER profile
 // (renderer.js points 2 → 3 → 4 → 5):
@@ -189,7 +196,26 @@ export class StoneSystem {
     // the cutoff between the despawn pass and the in-shoe re-projection
     // pass (which runs later in update()), so they're explicitly kept.
     const cutoff = walker.worldX - DESPAWN_DISTANCE;
-    this.stones = this.stones.filter(s => s.state === 'inshoe' || s.x > cutoff);
+
+    // Cap in-shoe stones per foot. Count first, then evict the oldest
+    // (array order = insertion order) in the same filter pass that
+    // despawns trailing static stones.
+    let sideCountR = 0, sideCountL = 0;
+    for (const s of this.stones) {
+      if (s.state !== 'inshoe') continue;
+      if (s.legSide === 'right') sideCountR++; else sideCountL++;
+    }
+    let evictR = Math.max(0, sideCountR - MAX_IN_SHOE_PER_FOOT);
+    let evictL = Math.max(0, sideCountL - MAX_IN_SHOE_PER_FOOT);
+
+    this.stones = this.stones.filter(s => {
+      if (s.state === 'inshoe') {
+        if (s.legSide === 'right' && evictR > 0) { evictR--; return false; }
+        if (s.legSide === 'left'  && evictL > 0) { evictL--; return false; }
+        return true;
+      }
+      return s.x > cutoff;
+    });
   }
 
   // ── Kick detection ───────────────────────────────────────────────────
