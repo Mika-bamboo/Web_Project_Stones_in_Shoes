@@ -1,48 +1,93 @@
-// Step 4 of gait-model-spec §8: two legs with shoes, sole-pivot ground
-// constraint (see walker.js), camera-follow. Stones (step 5) not yet wired.
+// Frame loop for the gait animation, wiring walker + stones + renderer
+// per gait-model-spec.md §7 build order.
 
-import { Walker } from './walker.js';
-import { drawLeg, drawGround } from './renderer.js';
+// Cache-buster `?v=N` on every relative import so a plain refresh picks
+// up animation-code changes. Bump this in lockstep with index.html's
+// `<script src="src/main.js?v=N">` whenever you touch walker/leg/
+// renderer/stones. Keep all ?v= values identical across the project.
+import { Walker } from './walker.js?v=26';
+import { StoneSystem } from './stones.js?v=26';
+import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=26';
 
 const canvas = document.getElementById('canvas1');
 const ctx = canvas.getContext('2d');
 const viewport = document.getElementById('viewport1');
+// Optional — index.html has `<span id="stoneCount">` to show how many
+// stones have been trapped in the shoe. Guarded so main.js still works
+// if the element ever gets removed.
+const stoneCountEl = document.getElementById('stoneCount');
+let lastShownTrappedCount = -1;
 
-// --- Dark mode detection ---
+// Restart-button DOM lookup. The actual click handler is wired further
+// down (after walker/stones/lastTime are declared) so the closure binds
+// to those variables in normal scope, not via TDZ.
+const restartBtn = document.getElementById('restartBtn');
+
+// ─── Framing ──────────────────────────────────────────────────────────
+// Below-waist zoom-and-crop. Walker, stones, and gait all stay in their
+// existing world coordinates; this is purely a render-time transform.
+//
+// ZOOM is the scale factor applied to every world-space unit. At 1.7×, a
+// 160 px leg renders at 272 screen px, which fills ~60% of a typical
+// viewport vertically.
+//
+// The reference-point mapping is: world `(walker.pelvisX, walker.groundY)`
+// is placed at screen `(W / 2, H * GROUND_SCREEN_Y)`. That centers the
+// walker horizontally and pins the ground near the bottom of the viewport,
+// which leaves just enough headroom to show the pelvis at the top of the
+// visible area and creates the "below-waist" framing.
+//
+// Everything is tunable in these two constants — no changes elsewhere.
+const ZOOM = 1.7;
+const GROUND_SCREEN_Y = 0.85;
+
+// Dark-mode detection.
 let darkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
   darkMode = e.matches;
 });
 
-// --- Responsive sizing (retina-aware) — called every frame ---
+// Retina-aware sizing.
 function resize() {
   const rect = viewport.getBoundingClientRect();
   if (rect.width === 0 || rect.height === 0) return;
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = rect.width * dpr;
+  canvas.width  = rect.width  * dpr;
   canvas.height = rect.height * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
 let walker = null;
+let stones = null;
 let lastTime = null;
+
+// Now that walker/stones/lastTime exist, wire the restart-button click
+// handler. Setting them to null causes the next frame's init block
+// (`if (!walker) { ... }`) to rebuild everything from scratch — same
+// path as the very first frame after page load.
+if (restartBtn) {
+  restartBtn.addEventListener('click', () => {
+    walker = null;
+    stones = null;
+    lastTime = null;
+    lastShownTrappedCount = -1;
+    if (stoneCountEl) stoneCountEl.textContent = '0';
+  });
+}
 
 function frame(now) {
   requestAnimationFrame(frame);
-
-  // Resize canvas every frame to handle layout changes
   resize();
 
-  const W = canvas.width / (window.devicePixelRatio || 1);
+  const W = canvas.width  / (window.devicePixelRatio || 1);
   const H = canvas.height / (window.devicePixelRatio || 1);
   if (W === 0 || H === 0) return;
 
-  // Create walker on first valid frame
+  // One-time initialization on the first valid frame.
   if (!walker) {
     const groundY = H * 0.78;
     walker = new Walker(groundY);
-    walker.pelvis = { x: 0, y: groundY - 170 };
-    walker.init();
+    stones = new StoneSystem();
     lastTime = now;
     return;
   }
@@ -50,48 +95,81 @@ function frame(now) {
   const dt = Math.min((now - lastTime) / 1000, 1 / 30);
   lastTime = now;
 
-  walker.step(dt);
+  walker.update(dt);
+  stones.update(walker, dt);
 
-  // Guard against NaN — reset if detected
-  if (isNaN(walker.pelvis.x) || isNaN(walker.pelvis.y)) {
-    walker.pelvis = { x: 0, y: walker.groundY - 170 };
-    walker.init();
-    return;
+  // Push the trapped-stone count to the DOM element (only when it
+  // changes, to avoid thrashing layout).
+  if (stoneCountEl && stones.trappedCount !== lastShownTrappedCount) {
+    stoneCountEl.textContent = String(stones.trappedCount);
+    lastShownTrappedCount = stones.trappedCount;
   }
 
-  // Camera offset: figure stays horizontally centered
-  const cameraX = walker.pelvis.x - W / 2;
-
-  // Clear
+  // Clear + background (screen space, no zoom).
   ctx.clearRect(0, 0, W, H);
   const bg = darkMode ? '#111111' : '#ffffff';
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  const strokeColor = darkMode ? '#e4e4e4' : '#1a1a1a';
-  ctx._strokeColor = strokeColor;
+  const stroke = darkMode ? '#e4e4e4' : '#1a1a1a';
+  ctx.strokeStyle = stroke;
+  ctx.fillStyle   = stroke;
 
-  // World-space drawing with camera offset
+  // ─── Enter zoomed world transform ────────────────────────────────
+  // Canvas transform sends (x, y) in the subsequent draws to
+  //   screen_x = tx + ZOOM * x
+  //   screen_y = ty + ZOOM * y
+  // Solving for tx, ty so that world (pelvisX, groundY) lands at
+  // (W/2, H * GROUND_SCREEN_Y):
   ctx.save();
-  ctx.translate(-cameraX, 0);
+  const tx = W / 2 - ZOOM * walker.pelvisX;
+  const ty = H * GROUND_SCREEN_Y - ZOOM * walker.groundY;
+  ctx.translate(tx, ty);
+  ctx.scale(ZOOM, ZOOM);
 
-  drawGround(ctx, walker.groundY, cameraX, W);
+  // Ground (world space). Ticks scroll with walker.worldX; the `W` here
+  // is used inside drawGround as a loop upper bound and intentionally
+  // over-draws a bit past the zoomed viewport — harmless, gets clipped.
+  drawGround(ctx, walker.groundY, walker.worldX, W);
 
-  // Draw back leg first, front leg second (occlusion by ankle x-position)
-  const legs = [walker.rightJoints, walker.leftJoints];
-  legs.sort((a, b) => a.ankle.x - b.ankle.x);  // back leg (smaller x) first
-  drawLeg(ctx, legs[0]);
-  drawLeg(ctx, legs[1]);
+  // Legs — right leg is always drawn LAST so it reads as closer to the
+  // camera. The filled trouser of the right leg occludes the left leg's
+  // outline wherever they overlap.
+  const trouserFill = darkMode ? '#191919' : '#f4f4f4';
+  const rightFlash = walker.getShoeFlashIntensity('right');
+  const leftFlash  = walker.getShoeFlashIntensity('left');
+  const rightPhase = walker.phase;
+  const leftPhase  = (walker.phase + 0.5) % 1;
+  drawLeg(ctx, walker.leftLeg,  leftFlash,  trouserFill, leftPhase);   // far
+  drawLeg(ctx, walker.rightLeg, rightFlash, trouserFill, rightPhase);  // near
 
+  // All stones drawn AFTER legs so they're visible on top of the filled
+  // shoe and trouser. In-shoe stones (red) appear on the shoe surface;
+  // static and flying stones appear in front of the foot.
+  ctx.save();
+  ctx.translate(walker.pelvisX - walker.worldX, 0);
+  drawStones(ctx, stones.stones);
   ctx.restore();
 
-  // Debug overlay (screen space)
+  ctx.restore();
+  // ─── Exit zoomed world transform ────────────────────────────────
+
+  // Debug overlay (screen space, unaffected by zoom).
   ctx.save();
   ctx.font = '12px monospace';
-  ctx.fillStyle = strokeColor;
   ctx.globalAlpha = 0.3;
   ctx.textAlign = 'left';
-  ctx.fillText(`phase: ${walker.phase.toFixed(2)}  pelvis.x: ${walker.pelvis.x.toFixed(0)}`, 12, H - 12);
+  // `sd:` exposes the loaded renderer.js's SOLE_DEPTH as a version marker:
+  //   sd:10   = current leg-proportional shoe
+  //   sd:6.5  = earlier halved profile
+  //   sd:13   = earlier spec-size profile
+  //   sd:33   = earliest 2.5x scaled profile
+  // If this shows anything other than sd:10, the browser is serving a
+  // cached copy of renderer.js and you need a hard refresh.
+  ctx.fillText(
+    `phase: ${walker.phase.toFixed(2)}  worldX: ${walker.worldX.toFixed(0)}  stones: ${stones.stones.length}  trapped: ${stones.trappedCount}  sd:${SOLE_DEPTH}  zoom:${ZOOM}`,
+    12, H - 12,
+  );
   ctx.restore();
 }
 

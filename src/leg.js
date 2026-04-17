@@ -1,51 +1,43 @@
-import { hipAngle, kneeAngle, ankleAngle } from './gait.js';
+// Forward kinematics for a single leg, per gait-model-spec.md §3.
+// Y-axis points down (Canvas convention).
 
-export class Leg {
-  constructor({ thighLength, shankLength, footLength, phaseOffset = 0 }) {
-    this.thighLength = thighLength;
-    this.shankLength = shankLength;
-    this.footLength  = footLength;
-    this.phaseOffset = phaseOffset;     // 0 for right leg, 0.5 for left
-  }
+import { GAIT, sampleAt } from './gait.js?v=26';
 
-  // Returns world-space joint positions for the given hip position and global phase.
-  // Angle convention: 0 = straight down. Positive = leg swings forward (+x).
-  solve(hipPos, globalPhase) {
-    const phase = (globalPhase + this.phaseOffset) % 1;
+// Given a hip position, a phase in [0, 1), and a leg geometry `config`
+// ({ thighLen, shankLen, footLen }), compute joint positions and footAngle.
+export function solveLeg(hipPos, phase, config) {
+  const { thighLen, shankLen, footLen } = config;
 
-    const thetaHip   = hipAngle(phase);
-    const thetaKnee  = kneeAngle(phase);     // knee flex bends shank backward relative to thigh
-    const thetaAnkle = ankleAngle(phase);     // ankle flex tilts foot relative to shank
+  // Sample the joint-angle curves at this phase.
+  const hipDeg   = sampleAt(GAIT.hip,   phase);
+  const kneeDeg  = sampleAt(GAIT.knee,  phase);
+  const ankleDeg = sampleAt(GAIT.ankle, phase);
 
-    // Thigh vector: from hip, angled thetaHip from straight-down
-    const thighDir = { x: Math.sin(thetaHip), y: Math.cos(thetaHip) };
-    const knee = {
-      x: hipPos.x + this.thighLength * thighDir.x,
-      y: hipPos.y + this.thighLength * thighDir.y,
-    };
+  const hipRad   = hipDeg   * Math.PI / 180;
+  const kneeRad  = kneeDeg  * Math.PI / 180;
+  const ankleRad = ankleDeg * Math.PI / 180;
 
-    // Shank vector: thigh angle MINUS knee flex (knee bends the shank backward)
-    const thetaShank = thetaHip - thetaKnee;
-    const shankDir = { x: Math.sin(thetaShank), y: Math.cos(thetaShank) };
-    const ankle = {
-      x: knee.x + this.shankLength * shankDir.x,
-      y: knee.y + this.shankLength * shankDir.y,
-    };
+  // Thigh hangs from hip. 0° = straight down. Positive = forward.
+  const thighAngle = hipRad;
+  const knee = {
+    x: hipPos.x + thighLen * Math.sin(thighAngle),
+    y: hipPos.y + thighLen * Math.cos(thighAngle),
+  };
 
-    // Foot vector: perpendicular-ish to shank, modulated by ankle angle
-    // At neutral ankle, foot points forward (+x). Plantarflexion rotates toe down.
-    const thetaFoot = thetaShank + Math.PI / 2 - thetaAnkle;
-    const footDir = { x: Math.sin(thetaFoot), y: Math.cos(thetaFoot) };
-    const toe = {
-      x: ankle.x + this.footLength * footDir.x,
-      y: ankle.y + this.footLength * footDir.y,
-    };
+  // Shank hangs from knee. Knee flexion bends it backward (behind the thigh).
+  const shankAngle = thighAngle - kneeRad;
+  const ankle = {
+    x: knee.x + shankLen * Math.sin(shankAngle),
+    y: knee.y + shankLen * Math.cos(shankAngle),
+  };
 
-    return { hip: { ...hipPos }, knee, ankle, toe, footAngle: thetaFoot, phase };
-  }
+  // Foot extends forward from ankle.
+  // At 0° ankle, foot is perpendicular to shank (pointing forward in world).
+  const footAngle = shankAngle + Math.PI / 2 - ankleRad;
+  const toe = {
+    x: ankle.x + footLen * Math.sin(footAngle),
+    y: ankle.y + footLen * Math.cos(footAngle),
+  };
 
-  isInStance(globalPhase) {
-    const phase = (globalPhase + this.phaseOffset) % 1;
-    return phase < 0.6;
-  }
+  return { hip: { ...hipPos }, knee, ankle, toe, footAngle };
 }

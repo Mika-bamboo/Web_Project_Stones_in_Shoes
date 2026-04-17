@@ -1,128 +1,124 @@
-import { Leg } from './leg.js';
+// Walker, per gait-model-spec.md §4 "Simple approach: scrolling world".
+//
+// The pelvis stays at a fixed screen x. The walker advances a `worldX`
+// counter each frame, which the renderer uses to scroll the ground backward.
+// This sidesteps the hairy pelvis-correction story entirely — the stance
+// foot never needs to stay planted in screen space because the ground is
+// what moves.
+//
+// Ground clamp (added to address the sinking bug): after solving the legs
+// at a tentative pelvis height, we compute the lowest world-space y of
+// any sole point belonging to a stance foot and shift the pelvis so that
+// point sits exactly on groundY. The legs are then re-solved. This is
+// *not* a pelvis-correction constraint in the "stance foot stays planted
+// in screen x" sense — it only touches pelvis.y. It prevents the shoe
+// from cutting through the ground line at all phases.
 
-// Sole contact points in foot-local coordinates. These match the heel and
-// ball-of-foot points on renderer.js's SNEAKER_PROFILE (y = +6 is the sole).
-// The ball is deliberately inboard of the toe tip so the toe-tip can lift
-// past it during the swing-leg kick.
-const HEEL_LOCAL = { x: -8, y: 6 };
-const TOE_LOCAL  = { x: 28, y: 6 };
+import { solveLeg } from './leg.js?v=26';
+import { SOLE_POINTS, SOLE_DEPTH } from './renderer.js?v=26';
 
-// Project a foot-local point into world coordinates given a solved joint set.
+const LEG_CONFIG = { thighLen: 80, shankLen: 80, footLen: 30 };
+
+// Rough pelvis height for the first tentative solve. The per-frame clamp
+// overrides this, so the exact value only matters for the first solve's
+// numerical stability: thigh + shank + sole depth is a reasonable seed.
+const PELVIS_SEED = LEG_CONFIG.thighLen + LEG_CONFIG.shankLen + SOLE_DEPTH;
+
+// Per-side "shoe flash" timer used to render a brief red glow around a
+// shoe when a stone enters it. stones.js calls walker.triggerShoeFlash()
+// from _trapStone; the timer linearly decays in walker.update(); the
+// renderer reads the intensity (0..1) via getShoeFlashIntensity() and
+// blends a red overlay on top of the shoe outline.
+const SHOE_FLASH_DURATION = 0.35;   // seconds
+
+// Return the maximum (most-downward in canvas y-down) world y of any
+// sole point on this leg's shoe, given the solved joint set.
 // Uses the same rotation convention as renderer.js drawShoe:
-//   canvas rotation θ = π/2 − joints.footAngle
-function worldOfFootLocal(joints, local) {
-  const theta = Math.PI / 2 - joints.footAngle;
+//   canvas rotation θ = π/2 − leg.footAngle.
+function lowestSoleY(leg) {
+  const theta = Math.PI / 2 - leg.footAngle;
   const c = Math.cos(theta), s = Math.sin(theta);
-  return {
-    x: joints.ankle.x + local.x * c - local.y * s,
-    y: joints.ankle.y + local.x * s + local.y * c,
-  };
+  let maxY = -Infinity;
+  for (const pt of SOLE_POINTS) {
+    const y = leg.ankle.y + pt.x * s + pt.y * c;
+    if (y > maxY) maxY = y;
+  }
+  return maxY;
 }
 
 export class Walker {
   constructor(groundY) {
-    this.right = new Leg({ thighLength: 90, shankLength: 90, footLength: 35, phaseOffset: 0 });
-    this.left  = new Leg({ thighLength: 90, shankLength: 90, footLength: 35, phaseOffset: 0.5 });
-
     this.phase = 0;
-    this.cadence = 1.0;                  // gait cycles per second
-    this.pelvis = { x: 200, y: 200 };    // corrected each frame by ground constraint
+    this.cadence = 1.0;        // gait cycles per second
     this.groundY = groundY;
+    this.worldX = 0;           // distance walked in world units (ground scroll)
+    this.strideLength = 120;   // world px per full gait cycle
+    this.pelvisX = 300;        // fixed screen x where the walker is centered
 
-    // Where each leg's sole pivot is planted in world space (null = in swing).
-    // The pivot starts as the heel at heel-strike and transitions to the
-    // ball-of-foot once the foot has rolled past foot-flat.
-    this.plantedContact = { right: null, left: null };
-    this.pivotLocal     = { right: HEEL_LOCAL, left: HEEL_LOCAL };
+    this.pelvis = null;
+    this.rightLeg = null;
+    this.leftLeg  = null;
 
-    // The enforcedSide is the leg whose sole pivot currently drives the
-    // pelvis. It flips at every heel-strike so the most recently planted
-    // leg always wins — this avoids a snap-back at the end of double support.
-    this.enforcedSide = 'right';
-
-    // Track which leg was in stance last frame, to detect heel-strike events.
-    this.wasInStance = { right: true, left: false };
-
-    this.rightJoints = null;
-    this.leftJoints  = null;
+    // Remaining flash time per side, in seconds. Decays each update().
+    this.shoeFlash = { right: 0, left: 0 };
   }
 
-  // Call after setting pelvis position to bootstrap the constraint from frame 1.
-  init() {
-    // Reset transient state so NaN-recovery re-enters a consistent state.
-    this.plantedContact = { right: null, left: null };
-    this.pivotLocal     = { right: HEEL_LOCAL, left: HEEL_LOCAL };
-    this.enforcedSide   = 'right';
-    this.wasInStance    = { right: true, left: false };
-
-    // Solve the right leg once with the caller's initial pelvis guess, then
-    // shift pelvis.y so the right heel sole sits exactly on the ground line.
-    let rJoints = this.right.solve(this.pelvis, this.phase);
-    const heel0 = worldOfFootLocal(rJoints, HEEL_LOCAL);
-    this.pelvis.y += this.groundY - heel0.y;
-
-    rJoints = this.right.solve(this.pelvis, this.phase);
-    const heel1 = worldOfFootLocal(rJoints, HEEL_LOCAL);
-    this.plantedContact.right = { x: heel1.x, y: this.groundY };
-
-    this.rightJoints = rJoints;
-    this.leftJoints  = this.left.solve(this.pelvis, this.phase);
+  // Called by stones.js when a stone enters this shoe — fires a brief
+  // red glow on the matching shoe.
+  triggerShoeFlash(side) {
+    this.shoeFlash[side] = SHOE_FLASH_DURATION;
   }
 
-  step(dt) {
+  // Linear flash intensity in [0, 1]; 0 means "no flash".
+  getShoeFlashIntensity(side) {
+    return this.shoeFlash[side] / SHOE_FLASH_DURATION;
+  }
+
+  update(dt) {
+    // Advance the single driving variable.
     this.phase = (this.phase + dt * this.cadence) % 1;
+    this.worldX += dt * this.cadence * this.strideLength;
 
-    // ── 1. Heel-strike detection ──
-    // When a leg enters stance, plant its heel on the ground line and make
-    // it the enforced side. Taking over enforcement at heel-strike (rather
-    // than at toe-off of the other leg) means the newly planted foot is
-    // anchored from the moment it touches the ground, avoiding any visible
-    // snap-back at the end of the double-support window.
-    for (const side of ['right', 'left']) {
-      const inStance = this[side].isInStance(this.phase);
-      if (inStance && !this.wasInStance[side]) {
-        const trial = this[side].solve(this.pelvis, this.phase);
-        const heelW = worldOfFootLocal(trial, HEEL_LOCAL);
-        this.plantedContact[side] = { x: heelW.x, y: this.groundY };
-        this.pivotLocal[side] = HEEL_LOCAL;
-        this.enforcedSide = side;
-      }
-      this.wasInStance[side] = inStance;
+    // Decay the per-shoe flash timers. Runs before stone entry detection
+    // (which lives in stones.update, called after walker.update from
+    // main.js), so a freshly-triggered flash starts at full strength
+    // for that frame's render.
+    this.shoeFlash.right = Math.max(0, this.shoeFlash.right - dt);
+    this.shoeFlash.left  = Math.max(0, this.shoeFlash.left  - dt);
+
+    // 1. Tentative solve at a rough standing height.
+    this.pelvis = { x: this.pelvisX, y: this.groundY - PELVIS_SEED };
+    const rightPhase = this.phase;
+    const leftPhase  = (this.phase + 0.5) % 1;
+    this.rightLeg = solveLeg(this.pelvis, rightPhase, LEG_CONFIG);
+    this.leftLeg  = solveLeg(this.pelvis, leftPhase,  LEG_CONFIG);
+
+    // 2. Ground clamp: find the lowest sole point among stance feet and
+    //    shift pelvis.y so that point sits exactly on groundY.
+    //    A leg is in stance while its local phase is below 0.6 (spec §2).
+    //    Swing feet are excluded because they naturally lift above the
+    //    ground and we don't want them to drag the pelvis down.
+    const rightInStance = rightPhase < 0.6;
+    const leftInStance  = leftPhase  < 0.6;
+
+    let lowestY = -Infinity;
+    if (rightInStance) {
+      const y = lowestSoleY(this.rightLeg);
+      if (y > lowestY) lowestY = y;
+    }
+    if (leftInStance) {
+      const y = lowestSoleY(this.leftLeg);
+      if (y > lowestY) lowestY = y;
     }
 
-    // ── 2. Enforce the sole-pivot constraint on the enforced leg ──
-    const stanceSide = this.enforcedSide;
-    const stanceLeg  = this[stanceSide];
-    const planted    = this.plantedContact[stanceSide];
-
-    if (planted) {
-      const trial = stanceLeg.solve(this.pelvis, this.phase);
-
-      // 2a. Heel → toe-ball pivot transition. Once the foot has rolled past
-      //     foot-flat (canvas rotation crosses zero), the ball of the foot
-      //     becomes the lower sole point and takes over the pivot. We re-plant
-      //     at (toeW.x, groundY) — using groundY rather than toeW.y so any
-      //     sub-pixel drift is snapped out at the transition moment.
-      if (this.pivotLocal[stanceSide] === HEEL_LOCAL) {
-        const heelW = worldOfFootLocal(trial, HEEL_LOCAL);
-        const toeW  = worldOfFootLocal(trial, TOE_LOCAL);
-        if (toeW.y > heelW.y) {
-          this.pivotLocal[stanceSide] = TOE_LOCAL;
-          this.plantedContact[stanceSide] = { x: toeW.x, y: this.groundY };
-        }
-      }
-
-      // 2b. Shift the pelvis so the current pivot sits exactly at its planted
-      //     point. IK is translation-equivariant, so a pelvis delta propagates
-      //     unchanged to every downstream joint and to the foot-local pivot.
-      const pivotW = worldOfFootLocal(trial, this.pivotLocal[stanceSide]);
-      const target = this.plantedContact[stanceSide];
-      this.pelvis.x += target.x - pivotW.x;
-      this.pelvis.y += target.y - pivotW.y;
+    if (lowestY > -Infinity) {
+      // IK is translation-equivariant, so shifting pelvis.y by Δ shifts
+      // every joint (and every sole point) by the same Δ. One re-solve
+      // is enough to get the corrected joint set for rendering.
+      const delta = this.groundY - lowestY;
+      this.pelvis.y += delta;
+      this.rightLeg = solveLeg(this.pelvis, rightPhase, LEG_CONFIG);
+      this.leftLeg  = solveLeg(this.pelvis, leftPhase,  LEG_CONFIG);
     }
-
-    // ── 3. Solve both legs with the corrected pelvis for rendering ──
-    this.rightJoints = this.right.solve(this.pelvis, this.phase);
-    this.leftJoints  = this.left.solve(this.pelvis, this.phase);
   }
 }

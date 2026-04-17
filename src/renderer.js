@@ -1,62 +1,176 @@
-// Drawing functions for the gait model.
+// Drawing functions, per gait-model-spec.md §5.
+//
+// All drawing uses the current ctx.strokeStyle / ctx.fillStyle, so the
+// caller is responsible for setting those (e.g. for dark-mode themes)
+// before invoking these helpers.
 
-// Sneaker profile in foot-local coordinates.
-// (0, 0) = ankle, (35, 0) = toe tip (+x along foot direction).
-// Y axis: negative = up (top of shoe), positive = down (sole).
-const SNEAKER_PROFILE = [
-  // Start at heel, sole bottom
-  { x: -8, y: 6 },
-  // Sole bottom — flat along the ground
-  { x: 38, y: 6 },
-  // Toe box — curves up
-  { x: 40, y: 4 },
-  { x: 40, y: 0 },
-  { x: 38, y: -4 },
-  // Upper — runs back toward ankle
-  { x: 28, y: -8 },
-  { x: 18, y: -10 },
-  // Throat / collar area
-  { x: 6, y: -10 },
-  // Collar top — above ankle
-  { x: -2, y: -10 },
-  // Heel counter — back and down
-  { x: -8, y: -8 },
-  { x: -10, y: -2 },
-  // Back to heel sole
-  { x: -8, y: 6 },
+// Sneaker profile in foot-local coordinates. Sized at ~49 px toe-to-heel
+// and ~21 px tall — x scaled 1.3× from the previous version to match
+// real-body proportions (foot ≈ 30% of leg length for an 80+80 = 160 px
+// leg). Y stays the same so the shoe doesn't gain vertical bulk.
+// Silhouette: low-top athletic sneaker with a flat rubber sole, rounded
+// toe cap, rounded heel counter, and a V-shaped collar opening.
+// Convention: (0, 0) = ankle joint, +x = toward toe, +y = toward sole.
+// Points are in counter-clockwise order around the outline.
+const SNEAKER = [
+  // Back of heel counter, climbing toward the collar.
+  { x: -11,   y:  -7   },
+  { x:  -9,   y: -10   },
+  { x:  -4,   y: -11   },   // top of collar, behind the ankle
+
+  // Collar opening — concave dip where the ankle emerges.
+  { x:   0,   y:  -7.5 },   // ankle center (deepest point of the opening)
+  { x:   5,   y:  -7.5 },
+  { x:   9,   y: -11   },   // top of collar, in front of the ankle
+
+  // Vamp sloping forward and down toward the toe cap.
+  { x:  13.5, y: -10   },
+  { x:  19.5, y:  -7.5 },
+  { x:  25.5, y:  -4.5 },
+
+  // Rounded toe cap — curls from the top of the vamp around to the sole.
+  { x:  30,   y:  -0.5 },
+  { x:  33,   y:   2.5 },
+  { x:  34,   y:   6   },
+  { x:  33,   y:   9   },
+
+  // Flat sole running back to the heel.
+  { x:  29,   y:  10   },
+  { x:  19.5, y:  10   },
+  { x:  10,   y:  10   },
+  { x:  -2,   y:  10   },
+  { x: -11,   y:  10   },
+
+  // Rounded heel counter — curves from the sole back up to the collar.
+  { x: -13.5, y:   6.5 },
+  { x: -15,   y:   2.5 },
+  { x: -13.5, y:  -2   },
+  // closePath loops back to (-11, -7)
 ];
 
-export function drawShoe(ctx, joints, profile) {
+// Sole contact points — every vertex of SNEAKER that could be the lowest
+// point of the shoe in world space across the gait cycle (the flat sole,
+// the toe cap corners where it meets the sole, and the heel back-curve
+// corner which becomes the lowest at heel strike).
+// Exported so walker.js can clamp the lowest of these to groundY.
+export const SOLE_POINTS = [
+  { x:  34,   y:  6   },   // toe cap front
+  { x:  33,   y:  9   },   // toe cap bottom-front
+  { x:  29,   y: 10   },
+  { x:  19.5, y: 10   },
+  { x:  10,   y: 10   },
+  { x:  -2,   y: 10   },
+  { x: -11,   y: 10   },
+  { x: -13.5, y:  6.5 },   // heel back-curve (lowest at heel strike)
+];
+
+// Sole tracing path. A subset of SNEAKER vertices that follows just the
+// bottom (rubber sole) edge from the heel back-curve corner forward to
+// the toe-cap bottom corner. Drawn as a second stroke pass with a
+// thicker line so the sole reads as a distinct rubber stripe.
+const SOLE_PATH = [
+  { x: -13.5, y:  6.5 },
+  { x: -11,   y: 10   },
+  { x:  -2,   y: 10   },
+  { x:  10,   y: 10   },
+  { x:  19.5, y: 10   },
+  { x:  29,   y: 10   },
+  { x:  33,   y:  9   },
+];
+
+// Maximum sole y in foot-local coordinates — the sole depth. Used as a
+// seed pelvis height before the per-frame clamp takes over, and surfaced
+// in the main.js debug overlay as a version fingerprint.
+export const SOLE_DEPTH = 10;
+
+// drawShoe(ctx, ankle, footAngle, flashIntensity, shoeFill)
+//
+// `flashIntensity` is a number in [0, 1]. When non-zero, a red glow
+// overlays the shoe. `shoeFill` is a CSS color to fill the shoe
+// interior so it looks solid (hides anything behind it). Pass null
+// for outline-only.
+export function drawShoe(ctx, ankle, footAngle, flashIntensity = 0, shoeFill = null) {
   ctx.save();
-  ctx.translate(joints.ankle.x, joints.ankle.y);
-  ctx.rotate(Math.PI / 2 - joints.footAngle);  // align +x with foot direction
+  ctx.translate(ankle.x, ankle.y);
+  ctx.rotate(Math.PI / 2 - footAngle);
 
-  ctx.beginPath();
-  ctx.moveTo(profile[0].x, profile[0].y);
-  for (let i = 1; i < profile.length; i++) {
-    ctx.lineTo(profile[i].x, profile[i].y);
+  // Build the SNEAKER path once — reused for fill, stroke, and flash.
+  function traceSneaker() {
+    ctx.beginPath();
+    ctx.moveTo(SNEAKER[0].x, SNEAKER[0].y);
+    for (let i = 1; i < SNEAKER.length; i++) {
+      ctx.lineTo(SNEAKER[i].x, SNEAKER[i].y);
+    }
+    ctx.closePath();
   }
-  ctx.closePath();
+
+  // 1. Solid fill so the shoe interior is opaque (hides the leg
+  //    geometry behind it — no "see-through" hollow shoe).
+  if (shoeFill) {
+    traceSneaker();
+    const savedFill = ctx.fillStyle;
+    ctx.fillStyle = shoeFill;
+    ctx.fill();
+    ctx.fillStyle = savedFill;
+  }
+
+  // 2. Upper outline.
+  traceSneaker();
   ctx.lineWidth = 2;
-  ctx.strokeStyle = ctx._strokeColor || '#000';
-  ctx.fillStyle = 'transparent';
   ctx.stroke();
 
-  // Sole line (thicker, separates sole from upper)
+  // 2. Sole stripe (just the bottom edge, thicker stroke). Same color
+  //    as the upper. Visually reads as a rubber sole because the line
+  //    is twice as thick as the rest of the outline.
   ctx.beginPath();
-  ctx.moveTo(-8, 3);
-  ctx.lineTo(38, 3);
-  ctx.lineWidth = 1.5;
+  ctx.moveTo(SOLE_PATH[0].x, SOLE_PATH[0].y);
+  for (let i = 1; i < SOLE_PATH.length; i++) {
+    ctx.lineTo(SOLE_PATH[i].x, SOLE_PATH[i].y);
+  }
+  ctx.lineWidth = 4;
   ctx.stroke();
+
+  // 3. Red flash overlay (only when something just entered this shoe).
+  //    Fills the shoe polygon with semi-transparent red so the entire
+  //    silhouette glows, and re-strokes the outline at full alpha for
+  //    edge definition. The fill alpha is capped below 1 so trapped
+  //    stones drawn behind the leg (in main.js, before drawLeg) remain
+  //    partially visible underneath the glow as it fades.
+  if (flashIntensity > 0) {
+    const savedFill   = ctx.fillStyle;
+    const savedStroke = ctx.strokeStyle;
+
+    // Build the SNEAKER path once and reuse it for fill + stroke.
+    ctx.beginPath();
+    ctx.moveTo(SNEAKER[0].x, SNEAKER[0].y);
+    for (let i = 1; i < SNEAKER.length; i++) {
+      ctx.lineTo(SNEAKER[i].x, SNEAKER[i].y);
+    }
+    ctx.closePath();
+
+    // Fill — bright red, alpha proportional to (and below) the flash
+    // intensity so the glow fades smoothly with the timer.
+    ctx.fillStyle = `rgba(255, 50, 50, ${flashIntensity * 0.6})`;
+    ctx.fill();
+
+    // Outline — same shade at full flash alpha, lineWidth 4 so the
+    // shoe edge pops while the fill is visible.
+    ctx.strokeStyle = `rgba(220, 30, 30, ${flashIntensity})`;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    ctx.fillStyle   = savedFill;
+    ctx.strokeStyle = savedStroke;
+  }
 
   ctx.restore();
 }
 
-export function drawLegTube(ctx, a, b, width = 16) {
+export function drawLegTube(ctx, a, b, width = 14) {
   const dx = b.x - a.x, dy = b.y - a.y;
   const len = Math.hypot(dx, dy);
   if (len === 0) return;
-  const nx = -dy / len, ny = dx / len;     // perpendicular unit vector
+  const nx = -dy / len, ny = dx / len;    // perpendicular unit vector
   const w = width / 2;
 
   ctx.beginPath();
@@ -66,53 +180,177 @@ export function drawLegTube(ctx, a, b, width = 16) {
   ctx.lineTo(a.x - nx * w, a.y - ny * w);
   ctx.closePath();
   ctx.lineWidth = 2;
-  ctx.strokeStyle = ctx._strokeColor || '#000';
   ctx.stroke();
 }
+
+// drawMuscledTube — a tapered, asymmetric-bulging muscle shape along
+// the segment from `a` to `b`. Takes two half-width arrays:
+//
+//   backWidths[i]  — outward distance on the "+perp" side of the centerline
+//   frontWidths[i] — outward distance on the "-perp" side
+//
+// The perpendicular (`nx = -dy/L, ny = dx/L`) points to the anatomical
+// *back* of the leg regardless of leg orientation, because our gait
+// curves keep the distal joint below the proximal joint (`dy > 0`) at
+// every phase. So `backWidths` always controls the calf / hamstring
+// side and `frontWidths` always controls the tibia / quadriceps side.
+//
+// Both arrays must be the same length. With n = 6 we get 5 outline
+// segments per side (10 total), enough to read as a smooth curve at
+// ZOOM=1.7 without bezier math.
+export function drawMuscledTube(ctx, a, b, backWidths, frontWidths, doFill = false, compensateTilt = false) {
+  const n = backWidths.length;
+  if (n < 2 || frontWidths.length !== n) return;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return;
+
+  // Perpendicular pointing to the anatomical back side of the leg.
+  const nx = -dy / len, ny = dx / len;
+
+  // Width compensation: when the segment tilts, the perpendicular
+  // rotates and the HORIZONTAL extent of the tube shrinks. Scaling
+  // widths by 1/|nx| restores the horizontal extent to its base value.
+  // Capped at 1.3 to prevent ballooning at extreme angles.
+  const tiltScale = compensateTilt
+    ? Math.min(1.3, 1 / Math.max(0.5, Math.abs(nx)))
+    : 1;
+
+  ctx.beginPath();
+  // Back side (+perp), walking a → b.
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const cx = a.x + dx * t;
+    const cy = a.y + dy * t;
+    const w = backWidths[i] * tiltScale;
+    const px = cx + nx * w;
+    const py = cy + ny * w;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  // Front side (-perp), walking b → a (reverse order so the polygon closes cleanly).
+  for (let i = n - 1; i >= 0; i--) {
+    const t = i / (n - 1);
+    const cx = a.x + dx * t;
+    const cy = a.y + dy * t;
+    const w = frontWidths[i] * tiltScale;
+    ctx.lineTo(cx - nx * w, cy - ny * w);
+  }
+  ctx.closePath();
+  if (doFill) ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+// Anatomically-asymmetric muscle profiles. Each pair gives half-widths
+// for the back and front of the segment, sampled at 6 evenly-spaced
+// points from the proximal joint to the distal joint.
+//
+// Thigh: quadriceps (front) is a bit thicker than hamstrings (back),
+// with a glute tuck at the hip on the back side; both sides meet at a
+// narrow knee.
+const THIGH_BACK_PROFILE  = [9,   9,   8,   7.5, 6.5, 6];   // hamstring + glute
+const THIGH_FRONT_PROFILE = [7,   9,   9.5, 8.5, 7,   6];   // quadriceps
+
+// Shank: pronounced calf bulge (high on the shank, around t=0.2) on the
+// back side; the front is nearly flat (tibia bone), tapering gently.
+const SHANK_BACK_PROFILE  = [6,  10,  9.5, 7,   5.5, 4.5]; // gastrocnemius
+const SHANK_FRONT_PROFILE = [5,   5.5, 5,   4.5, 4,   3.5]; // tibia
+
+// ── Trouser profiles ────────────────────────────────────────────────
+// Wider and smoother than the bare-muscle profiles. Symmetric back/front
+// because fabric hides the underlying muscle contour.
+const TROUSER_THIGH_BACK  = [12,   12,   12,   11.5, 11,  10.5];
+const TROUSER_THIGH_FRONT = [11,   12,   12,   11.5, 11,  10.5];
+const TROUSER_SHANK_BACK  = [10.5, 11,   10.5, 10,   9.5,  8.5];
+const TROUSER_SHANK_FRONT = [10.5, 11,   10.5, 10,   9.5,  8.5];
 
 export function drawJointDot(ctx, pos, radius = 4) {
   ctx.beginPath();
   ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-  ctx.fillStyle = ctx._strokeColor || '#000';
   ctx.fill();
 }
 
-export function drawLeg(ctx, joints) {
-  drawLegTube(ctx, joints.hip, joints.knee, 16);    // thigh
-  drawLegTube(ctx, joints.knee, joints.ankle, 14);   // shank
+// drawLeg(ctx, leg, flashIntensity, trouserFill, localPhase)
+//
+// When `trouserFill` is set, draws the trouser as TWO overlapping filled
+// tubes (thigh + shank) with a filled knee patch to hide the seam. Each
+// tube extends 5 px past the knee so they overlap under the same fill
+// color. Width compensation (`1/|nx|`, capped) keeps the horizontal
+// extent constant regardless of leg tilt.
+//
+// When null, bare-muscle outlines with no fill.
+export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null, localPhase = 0) {
+  if (trouserFill) {
+    const savedFill = ctx.fillStyle;
+    ctx.fillStyle = trouserFill;
 
-  // Shoe replaces the bare foot segment
-  drawShoe(ctx, joints, SNEAKER_PROFILE);
+    // Extend each tube 5 px past the knee for seamless overlap.
+    const tdx = leg.knee.x - leg.hip.x,   tdy = leg.knee.y - leg.hip.y;
+    const sdx = leg.ankle.x - leg.knee.x, sdy = leg.ankle.y - leg.knee.y;
+    const tlen = Math.hypot(tdx, tdy) || 1;
+    const slen = Math.hypot(sdx, sdy) || 1;
+    const OV = 5;
+    const thighEnd  = { x: leg.knee.x + OV * tdx / tlen, y: leg.knee.y + OV * tdy / tlen };
+    const shankStart = { x: leg.knee.x - OV * sdx / slen, y: leg.knee.y - OV * sdy / slen };
 
-  // Joint dots at hip and knee only (ankle is inside the shoe)
-  drawJointDot(ctx, joints.hip, 5);
-  drawJointDot(ctx, joints.knee, 4);
+    // Two overlapping filled+stroked tubes with tilt compensation.
+    drawMuscledTube(ctx, leg.hip,   thighEnd,  TROUSER_THIGH_BACK, TROUSER_THIGH_FRONT, true, true);
+    drawMuscledTube(ctx, shankStart, leg.ankle, TROUSER_SHANK_BACK, TROUSER_SHANK_FRONT, true, true);
+
+    // Filled knee patch: covers any remaining sliver at the joint.
+    const kneeR = (TROUSER_THIGH_BACK[5] + TROUSER_THIGH_FRONT[5]) / 2;
+    ctx.beginPath();
+    ctx.arc(leg.knee.x, leg.knee.y, kneeR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = savedFill;
+    // No joint dots in trouser mode — all joints hidden under fabric.
+  } else {
+    drawMuscledTube(ctx, leg.hip,  leg.knee,  THIGH_BACK_PROFILE, THIGH_FRONT_PROFILE);
+    drawMuscledTube(ctx, leg.knee, leg.ankle, SHANK_BACK_PROFILE, SHANK_FRONT_PROFILE);
+    drawJointDot(ctx, leg.hip,  5);
+    drawJointDot(ctx, leg.knee, 4);
+  }
+  drawShoe(ctx, leg.ankle, leg.footAngle, flashIntensity, trouserFill);
 }
 
-export function drawGround(ctx, groundY, cameraX, viewWidth) {
-  const strokeColor = ctx._strokeColor || '#000';
-
-  // Ground line spans the visible world range
-  const left = cameraX;
-  const right = cameraX + viewWidth;
-
+// Scrolling ground: the line stays fixed on screen, but the tick marks
+// scroll backward as `scrollX` grows, giving the illusion of forward motion.
+export function drawGround(ctx, groundY, scrollX, viewWidth) {
+  // Ground line spans the full canvas width.
   ctx.beginPath();
-  ctx.moveTo(left, groundY);
-  ctx.lineTo(right, groundY);
+  ctx.moveTo(0, groundY);
+  ctx.lineTo(viewWidth, groundY);
   ctx.lineWidth = 1.5;
-  ctx.strokeStyle = strokeColor;
   ctx.stroke();
 
-  // Tick marks every 50 world-space pixels
+  // Tick marks every 50 px, shifted by −scrollX so they slide left.
   ctx.lineWidth = 1;
-  ctx.strokeStyle = strokeColor;
   ctx.globalAlpha = 0.3;
-  const firstTick = Math.floor(left / 50) * 50;
-  for (let x = firstTick; x <= right; x += 50) {
+  const tickSpacing = 50;
+  const offset = ((scrollX % tickSpacing) + tickSpacing) % tickSpacing;
+  for (let x = -offset; x <= viewWidth; x += tickSpacing) {
     ctx.beginPath();
     ctx.moveTo(x, groundY);
     ctx.lineTo(x, groundY + 6);
     ctx.stroke();
   }
   ctx.globalAlpha = 1.0;
+}
+
+// In-shoe stones are drawn in red to signal "trapped"; static and
+// flying stones use whatever ctx.fillStyle the caller already set
+// (the theme stroke color in main.js).
+const TRAPPED_STONE_COLOR = '#cc0000';
+
+export function drawStones(ctx, stones) {
+  const defaultFill = ctx.fillStyle;
+  for (const s of stones) {
+    ctx.fillStyle = (s.state === 'inshoe') ? TRAPPED_STONE_COLOR : defaultFill;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = defaultFill;
 }
