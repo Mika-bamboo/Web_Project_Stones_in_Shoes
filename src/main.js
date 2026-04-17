@@ -11,7 +11,7 @@
 // suffix here or it'll bypass the importmap.
 import { Walker } from 'walker';
 import { StoneSystem } from 'stones';
-import { drawLeg, drawGround, drawStones, drawStoneTrails, SOLE_DEPTH } from 'renderer';
+import { drawLeg, drawGround, drawStones, drawStoneTrails, buildSneakerProfile, SOLE_DEPTH } from 'renderer';
 
 // Dark-mode detection (shared across all views).
 let darkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -44,6 +44,10 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
 //                            walker.cadence (value 1–10 → 0.2–2.0 Hz)
 //   stoneSizeSlider        — optional <input type="range"> driving stone
 //                            radius range (value 2–8 mm)
+//   shoeProfileFn          — optional () => points[] callback invoked
+//                            each frame; lets Act 3 regenerate the shoe
+//                            outline live from collar-height / heel-notch
+//                            sliders without rebuilding the view
 function createGaitView(opts) {
   const {
     canvasEl,
@@ -56,6 +60,7 @@ function createGaitView(opts) {
     debugOverlay = false,
     speedSlider = null,
     stoneSizeSlider = null,
+    shoeProfileFn = null,
   } = opts;
 
   if (!canvasEl || !viewportEl) return;
@@ -192,8 +197,9 @@ function createGaitView(opts) {
     const leftFlash  = walker.getShoeFlashIntensity('left');
     const rightPhase = walker.phase;
     const leftPhase  = (walker.phase + 0.5) % 1;
-    drawLeg(ctx, walker.leftLeg,  leftFlash,  trouserFill, leftPhase);
-    drawLeg(ctx, walker.rightLeg, rightFlash, trouserFill, rightPhase);
+    const shoeProfile = shoeProfileFn ? shoeProfileFn() : null;
+    drawLeg(ctx, walker.leftLeg,  leftFlash,  trouserFill, leftPhase,  shoeProfile);
+    drawLeg(ctx, walker.rightLeg, rightFlash, trouserFill, rightPhase, shoeProfile);
 
     // Stones drawn AFTER legs. Trails first (behind stones), then stones.
     ctx.save();
@@ -253,4 +259,30 @@ createGaitView({
   speedSlider: document.getElementById('speed2'),
   stoneSizeSlider: document.getElementById('stoneSize2'),
   restartBtn: document.getElementById('restartBtn2'),
+});
+
+// ── Act 3: extreme close-up on the ankle/collar with live-editable
+//    shoe geometry. The existing gait cycle rotates the foot under the
+//    ankle, so the V-shaped collar opening naturally sweeps past the
+//    ankle each step — that's the "breathing door" the narrative wants
+//    to highlight. The collarHeight + heelNotch sliders feed
+//    buildSneakerProfile() per frame so shape edits take effect live.
+//
+//    Slider mapping:
+//      collarHeight (1–10) → h = 6 + slider   (range 7..16, default@3 = 9)
+//      heelNotch    (1–10) → w = slider       (range 1..10, default@7 = 7)
+//    The reference SNEAKER in renderer.js corresponds to collarHeight
+//    slider = 5 (h=11) and heelNotch slider = 5 (w=5).
+const collarHeightSlider = document.getElementById('collarHeight');
+const heelNotchSlider    = document.getElementById('heelNotch');
+createGaitView({
+  canvasEl: document.getElementById('canvas3'),
+  viewportEl: document.getElementById('viewport3'),
+  zoom: 4.5,
+  groundScreenY: 1.05,   // push ground off-frame so the ankle fills the view
+  showTrails: false,
+  shoeProfileFn: () => buildSneakerProfile({
+    collarHeight: collarHeightSlider ? 6 + parseFloat(collarHeightSlider.value) : undefined,
+    heelNotch:    heelNotchSlider    ?     parseFloat(heelNotchSlider.value)    : undefined,
+  }),
 });

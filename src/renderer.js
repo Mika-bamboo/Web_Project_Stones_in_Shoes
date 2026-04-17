@@ -12,41 +12,60 @@
 // toe cap, rounded heel counter, and a V-shaped collar opening.
 // Convention: (0, 0) = ankle joint, +x = toward toe, +y = toward sole.
 // Points are in counter-clockwise order around the outline.
-const SNEAKER = [
-  // Back of heel counter, climbing toward the collar.
-  { x: -11,   y:  -7   },
-  { x:  -9,   y: -10   },
-  { x:  -4,   y: -11   },   // top of collar, behind the ankle
+//
+// The collar region (points 1-5 below) is parameterized so Act 3 can
+// live-edit collar height and heel-notch width without forking the
+// whole shoe outline. Everything below the collar (vamp → toe cap →
+// sole → heel counter) is fixed.
+//
+//   collarHeight — how high the top of the collar sits above the sole
+//                  (larger = taller shoe, e.g. boot-like). Default 11.
+//   heelNotch    — width of the flat V-bottom of the collar opening
+//                  (larger = wider cutout for ankle flexion). Default 5.
+export function buildSneakerProfile({ collarHeight = 11, heelNotch = 5 } = {}) {
+  const h = collarHeight;
+  // Center the flat V-bottom around the midpoint of the default (2.5).
+  const vCenter = 2.5;
+  const vLeft  = vCenter - heelNotch / 2;
+  const vRight = vCenter + heelNotch / 2;
+  return [
+    // Back of heel counter, climbing toward the collar.
+    { x: -11,    y: -7       },
+    { x:  -9,    y: -(h - 1) },
+    { x:  -4,    y: -h       },   // top of collar, behind the ankle
 
-  // Collar opening — concave dip where the ankle emerges.
-  { x:   0,   y:  -7.5 },   // ankle center (deepest point of the opening)
-  { x:   5,   y:  -7.5 },
-  { x:   9,   y: -11   },   // top of collar, in front of the ankle
+    // Collar opening — concave dip where the ankle emerges.
+    { x: vLeft,  y: -7.5     },   // V-bottom, back edge
+    { x: vRight, y: -7.5     },   // V-bottom, front edge
+    { x:   9,    y: -h       },   // top of collar, in front of the ankle
 
-  // Vamp sloping forward and down toward the toe cap.
-  { x:  13.5, y: -10   },
-  { x:  19.5, y:  -7.5 },
-  { x:  25.5, y:  -4.5 },
+    // Vamp sloping forward and down toward the toe cap.
+    { x:  13.5,  y: -10      },
+    { x:  19.5,  y:  -7.5    },
+    { x:  25.5,  y:  -4.5    },
 
-  // Rounded toe cap — curls from the top of the vamp around to the sole.
-  { x:  30,   y:  -0.5 },
-  { x:  33,   y:   2.5 },
-  { x:  34,   y:   6   },
-  { x:  33,   y:   9   },
+    // Rounded toe cap — curls from the top of the vamp around to the sole.
+    { x:  30,    y:  -0.5    },
+    { x:  33,    y:   2.5    },
+    { x:  34,    y:   6      },
+    { x:  33,    y:   9      },
 
-  // Flat sole running back to the heel.
-  { x:  29,   y:  10   },
-  { x:  19.5, y:  10   },
-  { x:  10,   y:  10   },
-  { x:  -2,   y:  10   },
-  { x: -11,   y:  10   },
+    // Flat sole running back to the heel.
+    { x:  29,    y:  10      },
+    { x:  19.5,  y:  10      },
+    { x:  10,    y:  10      },
+    { x:  -2,    y:  10      },
+    { x: -11,    y:  10      },
 
-  // Rounded heel counter — curves from the sole back up to the collar.
-  { x: -13.5, y:   6.5 },
-  { x: -15,   y:   2.5 },
-  { x: -13.5, y:  -2   },
-  // closePath loops back to (-11, -7)
-];
+    // Rounded heel counter — curves from the sole back up to the collar.
+    { x: -13.5,  y:   6.5    },
+    { x: -15,    y:   2.5    },
+    { x: -13.5,  y:  -2      },
+    // closePath loops back to (-11, -7)
+  ];
+}
+
+const SNEAKER = buildSneakerProfile();
 
 // Sole contact points — every vertex of SNEAKER that could be the lowest
 // point of the shoe in world space across the gait cycle (the flat sole,
@@ -83,23 +102,26 @@ const SOLE_PATH = [
 // in the main.js debug overlay as a version fingerprint.
 export const SOLE_DEPTH = 10;
 
-// drawShoe(ctx, ankle, footAngle, flashIntensity, shoeFill)
+// drawShoe(ctx, ankle, footAngle, flashIntensity, shoeFill, profile)
 //
 // `flashIntensity` is a number in [0, 1]. When non-zero, a red glow
 // overlays the shoe. `shoeFill` is a CSS color to fill the shoe
 // interior so it looks solid (hides anything behind it). Pass null
-// for outline-only.
-export function drawShoe(ctx, ankle, footAngle, flashIntensity = 0, shoeFill = null) {
+// for outline-only. `profile` is an optional override for the sneaker
+// point list — when omitted, the default SNEAKER is used. Act 3 passes
+// a live-regenerated profile so the collar responds to slider changes.
+export function drawShoe(ctx, ankle, footAngle, flashIntensity = 0, shoeFill = null, profile = null) {
+  const P = profile || SNEAKER;
   ctx.save();
   ctx.translate(ankle.x, ankle.y);
   ctx.rotate(Math.PI / 2 - footAngle);
 
-  // Build the SNEAKER path once — reused for fill, stroke, and flash.
+  // Build the shoe path once — reused for fill, stroke, and flash.
   function traceSneaker() {
     ctx.beginPath();
-    ctx.moveTo(SNEAKER[0].x, SNEAKER[0].y);
-    for (let i = 1; i < SNEAKER.length; i++) {
-      ctx.lineTo(SNEAKER[i].x, SNEAKER[i].y);
+    ctx.moveTo(P[0].x, P[0].y);
+    for (let i = 1; i < P.length; i++) {
+      ctx.lineTo(P[i].x, P[i].y);
     }
     ctx.closePath();
   }
@@ -140,11 +162,11 @@ export function drawShoe(ctx, ankle, footAngle, flashIntensity = 0, shoeFill = n
     const savedFill   = ctx.fillStyle;
     const savedStroke = ctx.strokeStyle;
 
-    // Build the SNEAKER path once and reuse it for fill + stroke.
+    // Build the shoe path once and reuse it for fill + stroke.
     ctx.beginPath();
-    ctx.moveTo(SNEAKER[0].x, SNEAKER[0].y);
-    for (let i = 1; i < SNEAKER.length; i++) {
-      ctx.lineTo(SNEAKER[i].x, SNEAKER[i].y);
+    ctx.moveTo(P[0].x, P[0].y);
+    for (let i = 1; i < P.length; i++) {
+      ctx.lineTo(P[i].x, P[i].y);
     }
     ctx.closePath();
 
@@ -271,7 +293,7 @@ export function drawJointDot(ctx, pos, radius = 4) {
   ctx.fill();
 }
 
-// drawLeg(ctx, leg, flashIntensity, trouserFill, localPhase)
+// drawLeg(ctx, leg, flashIntensity, trouserFill, localPhase, shoeProfile)
 //
 // When `trouserFill` is set, draws the trouser as TWO overlapping filled
 // tubes (thigh + shank) with a filled knee patch to hide the seam. Each
@@ -280,7 +302,11 @@ export function drawJointDot(ctx, pos, radius = 4) {
 // extent constant regardless of leg tilt.
 //
 // When null, bare-muscle outlines with no fill.
-export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null, localPhase = 0) {
+//
+// `shoeProfile` is an optional sneaker point list forwarded to drawShoe
+// — lets Act 3 swap in a slider-driven profile without disturbing the
+// default look of Acts 1/2.
+export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null, localPhase = 0, shoeProfile = null) {
   if (trouserFill) {
     const savedFill = ctx.fillStyle;
     ctx.fillStyle = trouserFill;
@@ -316,7 +342,7 @@ export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null, localP
     drawJointDot(ctx, leg.hip,  5);
     drawJointDot(ctx, leg.knee, 4);
   }
-  drawShoe(ctx, leg.ankle, leg.footAngle, flashIntensity, trouserFill);
+  drawShoe(ctx, leg.ankle, leg.footAngle, flashIntensity, trouserFill, shoeProfile);
 }
 
 // Scrolling ground: the line stays fixed on screen, but the tick marks
