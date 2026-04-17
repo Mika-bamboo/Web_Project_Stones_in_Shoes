@@ -354,3 +354,32 @@ export function drawStones(ctx, stones) {
   }
   ctx.fillStyle = defaultFill;
 }
+
+// Dotted parabolic trajectory trails behind every flying stone. Each
+// trail point is rendered as a small accent-colored dot with alpha that
+// ramps from transparent (oldest) to opaque (newest), so the arc reads
+// as a motion-smeared dotted line. Used in Act 2 to visualize kick-up
+// arcs (design-spec §Act 2).
+//
+// Note: the accent color is hard-coded to coral — the project's single
+// non-monochrome color per design-spec §Visual style. If the theme
+// system ever grows, plumb a color through here.
+const TRAIL_COLOR_RGB = '216, 90, 48';   // #D85A30 (accent)
+const TRAIL_DOT_R     = 1.2;
+
+export function drawStoneTrails(ctx, stones) {
+  const savedFill = ctx.fillStyle;
+  for (const s of stones) {
+    if (!s.trail || s.trail.length < 2) continue;
+    const n = s.trail.length;
+    for (let i = 0; i < n; i++) {
+      // Oldest point: alpha ≈ 0. Newest: alpha ≈ 0.9.
+      const t = (i + 1) / n;
+      ctx.fillStyle = `rgba(${TRAIL_COLOR_RGB}, ${t * 0.9})`;
+      ctx.beginPath();
+      ctx.arc(s.trail[i].x, s.trail[i].y, TRAIL_DOT_R, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.fillStyle = savedFill;
+}

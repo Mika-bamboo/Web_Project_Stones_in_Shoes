@@ -17,8 +17,16 @@ const GRAVITY           = 800;   // px/s² (downward = +y)
 const KICK_WINDOW_MIN   = 0.50;  // toe-off phase start (slightly widened)
 const KICK_WINDOW_MAX   = 0.72;  // toe-off phase end
 const KICK_REACH        = 32;    // px — toe→stone distance at which a kick fires
-const STONE_MIN_R       = 3;
-const STONE_MAX_R       = 6;
+// Default radius range for newly-spawned stones. Overridable per instance
+// via `stoneSystem.minR` / `maxR` (Act 2's stone-size slider writes these).
+const DEFAULT_STONE_MIN_R = 3;
+const DEFAULT_STONE_MAX_R = 6;
+
+// Trajectory trail — how many past positions to remember per flying stone
+// and how often to sample them. Sampled every N frames rather than every
+// frame so the dotted arc reads as discrete points, not a continuous line.
+const TRAIL_MAX_POINTS   = 30;
+const TRAIL_SAMPLE_EVERY = 2;    // frames
 
 // ── Physically-accurate kick model ───────────────────────────────────
 // When the toe contacts a stone during toe-off, it delivers a fixed
@@ -111,9 +119,16 @@ export class StoneSystem {
     // opening. Surfaced in main.js's debug overlay and wired to
     // index.html's #stoneCount element.
     this.trappedCount = 0;
+    // Runtime-tunable radius range. main.js writes these from Act 2's
+    // stone-size slider; defaults preserve Act 1's original behavior.
+    this.minR = DEFAULT_STONE_MIN_R;
+    this.maxR = DEFAULT_STONE_MAX_R;
+    // Frame counter for trail sampling cadence.
+    this._frame = 0;
   }
 
   update(walker, dt) {
+    this._frame++;
     this._ensureScatter(walker);
     this._despawnBehind(walker);
     this._detectKicks(walker, dt);
@@ -130,6 +145,19 @@ export class StoneSystem {
     this._updateInShoe(walker, dt);
   }
 
+  // ── Trail sampling ───────────────────────────────────────────────────
+  //
+  // Pushed from within _integratePositions so trails only extend while the
+  // stone is flying. On kick the stone's `trail` array is initialized empty
+  // (see _detectKicks); on land/trap it's cleared so the trail doesn't
+  // persist after the stone comes to rest.
+  _sampleTrail(stone) {
+    if (this._frame % TRAIL_SAMPLE_EVERY !== 0) return;
+    if (!stone.trail) stone.trail = [];
+    stone.trail.push({ x: stone.x, y: stone.y });
+    if (stone.trail.length > TRAIL_MAX_POINTS) stone.trail.shift();
+  }
+
   // ── Static stone scatter ─────────────────────────────────────────────
 
   _ensureScatter(walker) {
@@ -138,7 +166,7 @@ export class StoneSystem {
     }
     while (this.generatedUpTo < walker.worldX + SPAWN_HORIZON) {
       this.generatedUpTo += SPAWN_MIN_GAP + Math.random() * (SPAWN_MAX_GAP - SPAWN_MIN_GAP);
-      const r = STONE_MIN_R + Math.random() * (STONE_MAX_R - STONE_MIN_R);
+      const r = this.minR + Math.random() * (this.maxR - this.minR);
       this.stones.push({
         x: this.generatedUpTo,
         y: walker.groundY - r,   // resting on the ground line
@@ -204,6 +232,9 @@ export class StoneSystem {
             stone.state = 'flying';
             stone.vx = (KICK_BASE_VX + toeVx * KICK_TOE_VX_COEFF) * massRatio;
             stone.vy = (KICK_BASE_VY - Math.abs(toeVy) * KICK_TOE_VY_COEFF) * massRatio;
+            // Start a fresh trail at the launch point so the arc traces
+            // only the current flight, not any previous one.
+            stone.trail = [{ x: stone.x, y: stone.y }];
           }
         }
       }
@@ -226,6 +257,8 @@ export class StoneSystem {
       stone.vy += GRAVITY * dt;
       stone.x  += stone.vx * dt;
       stone.y  += stone.vy * dt;
+
+      this._sampleTrail(stone);
     }
   }
 
@@ -242,6 +275,7 @@ export class StoneSystem {
         stone.vx = 0;
         stone.vy = 0;
         stone.state = 'static';
+        stone.trail = null;
       }
     }
   }
@@ -312,6 +346,7 @@ export class StoneSystem {
     // No more projectile motion.
     stone.vx = 0;
     stone.vy = 0;
+    stone.trail = null;
 
     this.trappedCount++;
 

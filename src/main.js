@@ -1,176 +1,232 @@
 // Frame loop for the gait animation, wiring walker + stones + renderer
 // per gait-model-spec.md §7 build order.
-
+//
+// Exposed as a reusable factory `createGaitView(opts)` so each act that
+// needs a walking figure can mount its own independent instance with
+// per-act framing, controls, and overlays. Act 1 and Act 2 are wired at
+// the bottom of this file.
+//
 // Cache-buster `?v=N` on every relative import so a plain refresh picks
 // up animation-code changes. Bump this in lockstep with index.html's
 // `<script src="src/main.js?v=N">` whenever you touch walker/leg/
 // renderer/stones. Keep all ?v= values identical across the project.
-import { Walker } from './walker.js?v=26';
-import { StoneSystem } from './stones.js?v=26';
-import { drawLeg, drawGround, drawStones, SOLE_DEPTH } from './renderer.js?v=26';
+import { Walker } from './walker.js?v=27';
+import { StoneSystem } from './stones.js?v=27';
+import { drawLeg, drawGround, drawStones, drawStoneTrails, SOLE_DEPTH } from './renderer.js?v=27';
 
-const canvas = document.getElementById('canvas1');
-const ctx = canvas.getContext('2d');
-const viewport = document.getElementById('viewport1');
-// Optional — index.html has `<span id="stoneCount">` to show how many
-// stones have been trapped in the shoe. Guarded so main.js still works
-// if the element ever gets removed.
-const stoneCountEl = document.getElementById('stoneCount');
-let lastShownTrappedCount = -1;
-
-// Restart-button DOM lookup. The actual click handler is wired further
-// down (after walker/stones/lastTime are declared) so the closure binds
-// to those variables in normal scope, not via TDZ.
-const restartBtn = document.getElementById('restartBtn');
-
-// ─── Framing ──────────────────────────────────────────────────────────
-// Below-waist zoom-and-crop. Walker, stones, and gait all stay in their
-// existing world coordinates; this is purely a render-time transform.
-//
-// ZOOM is the scale factor applied to every world-space unit. At 1.7×, a
-// 160 px leg renders at 272 screen px, which fills ~60% of a typical
-// viewport vertically.
-//
-// The reference-point mapping is: world `(walker.pelvisX, walker.groundY)`
-// is placed at screen `(W / 2, H * GROUND_SCREEN_Y)`. That centers the
-// walker horizontally and pins the ground near the bottom of the viewport,
-// which leaves just enough headroom to show the pelvis at the top of the
-// visible area and creates the "below-waist" framing.
-//
-// Everything is tunable in these two constants — no changes elsewhere.
-const ZOOM = 1.7;
-const GROUND_SCREEN_Y = 0.85;
-
-// Dark-mode detection.
+// Dark-mode detection (shared across all views).
 let darkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
   darkMode = e.matches;
 });
 
-// Retina-aware sizing.
-function resize() {
-  const rect = viewport.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return;
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width  = rect.width  * dpr;
-  canvas.height = rect.height * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
+// ── View factory ────────────────────────────────────────────────────
+//
+// One `createGaitView(opts)` call = one canvas running its own walker +
+// stone system on its own rAF loop. Views are fully independent: Act 1's
+// counter doesn't affect Act 2, and vice versa.
+//
+// Framing — below-waist zoom-and-crop — is a render-time transform only.
+// Walker and stones stay in their world coordinates; the transform maps
+// world (walker.pelvisX, walker.groundY) to screen (W/2, H * groundScreenY).
+// Higher zoom = closer crop on the feet; smaller groundScreenY = more
+// headroom above the ground.
+//
+// Options:
+//   canvasEl, viewportEl   — required DOM handles
+//   zoom, groundScreenY    — framing
+//   showTrails             — dotted parabolic arcs behind flying stones
+//   stoneCountEl           — optional element whose textContent tracks
+//                            trapped-stone count
+//   restartBtn             — optional button that resets the view
+//   debugOverlay           — draws phase / worldX / stone counts corner
+//                            text (Act 1 uses this as a version marker)
+//   speedSlider            — optional <input type="range"> driving
+//                            walker.cadence (value 1–10 → 0.2–2.0 Hz)
+//   stoneSizeSlider        — optional <input type="range"> driving stone
+//                            radius range (value 2–8 mm)
+function createGaitView(opts) {
+  const {
+    canvasEl,
+    viewportEl,
+    zoom = 1.7,
+    groundScreenY = 0.85,
+    showTrails = false,
+    stoneCountEl = null,
+    restartBtn = null,
+    debugOverlay = false,
+    speedSlider = null,
+    stoneSizeSlider = null,
+  } = opts;
 
-let walker = null;
-let stones = null;
-let lastTime = null;
+  if (!canvasEl || !viewportEl) return;
 
-// Now that walker/stones/lastTime exist, wire the restart-button click
-// handler. Setting them to null causes the next frame's init block
-// (`if (!walker) { ... }`) to rebuild everything from scratch — same
-// path as the very first frame after page load.
-if (restartBtn) {
-  restartBtn.addEventListener('click', () => {
+  const ctx = canvasEl.getContext('2d');
+  let lastShownTrappedCount = -1;
+
+  let walker = null;
+  let stones = null;
+  let lastTime = null;
+
+  function resetView() {
     walker = null;
     stones = null;
     lastTime = null;
     lastShownTrappedCount = -1;
     if (stoneCountEl) stoneCountEl.textContent = '0';
-  });
-}
+  }
 
-function frame(now) {
-  requestAnimationFrame(frame);
-  resize();
+  if (restartBtn) {
+    restartBtn.addEventListener('click', resetView);
+  }
 
-  const W = canvas.width  / (window.devicePixelRatio || 1);
-  const H = canvas.height / (window.devicePixelRatio || 1);
-  if (W === 0 || H === 0) return;
+  // Retina-aware sizing.
+  function resize() {
+    const rect = viewportEl.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvasEl.width  = rect.width  * dpr;
+    canvasEl.height = rect.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
 
-  // One-time initialization on the first valid frame.
-  if (!walker) {
-    const groundY = H * 0.78;
-    walker = new Walker(groundY);
-    stones = new StoneSystem();
+  // Slider-driven parameters.
+  // Speed: slider 1–10 maps to cadence 0.2–2.0 Hz (default slider 5 = 1.0).
+  function applySpeed() {
+    if (!walker || !speedSlider) return;
+    const v = parseFloat(speedSlider.value);
+    walker.cadence = v * 0.2;
+  }
+  // Stone size: slider 2–8 (mm) maps to radius range. At slider=4 we
+  // recover the default (min=3, max=6). Larger values produce bigger
+  // (heavier) stones that won't arc as high — which is the key insight
+  // of Act 2 when paired with the speed slider.
+  function applyStoneSize() {
+    if (!stones || !stoneSizeSlider) return;
+    const v = parseFloat(stoneSizeSlider.value);
+    stones.minR = v * 0.75;
+    stones.maxR = v * 1.5;
+  }
+  if (speedSlider) {
+    speedSlider.addEventListener('input', applySpeed);
+  }
+  if (stoneSizeSlider) {
+    stoneSizeSlider.addEventListener('input', applyStoneSize);
+  }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    resize();
+
+    const W = canvasEl.width  / (window.devicePixelRatio || 1);
+    const H = canvasEl.height / (window.devicePixelRatio || 1);
+    if (W === 0 || H === 0) return;
+
+    // One-time initialization on the first valid frame.
+    if (!walker) {
+      const groundY = H * 0.78;
+      walker = new Walker(groundY);
+      stones = new StoneSystem();
+      lastTime = now;
+      // Apply initial slider state if wired.
+      applySpeed();
+      applyStoneSize();
+      return;
+    }
+
+    const dt = Math.min((now - lastTime) / 1000, 1 / 30);
     lastTime = now;
-    return;
+
+    walker.update(dt);
+    stones.update(walker, dt);
+
+    if (stoneCountEl && stones.trappedCount !== lastShownTrappedCount) {
+      stoneCountEl.textContent = String(stones.trappedCount);
+      lastShownTrappedCount = stones.trappedCount;
+    }
+
+    // Clear + background (screen space, no zoom).
+    ctx.clearRect(0, 0, W, H);
+    const bg = darkMode ? '#111111' : '#ffffff';
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    const stroke = darkMode ? '#e4e4e4' : '#1a1a1a';
+    ctx.strokeStyle = stroke;
+    ctx.fillStyle   = stroke;
+
+    // ─── Enter zoomed world transform ────────────────────────────────
+    ctx.save();
+    const tx = W / 2 - zoom * walker.pelvisX;
+    const ty = H * groundScreenY - zoom * walker.groundY;
+    ctx.translate(tx, ty);
+    ctx.scale(zoom, zoom);
+
+    drawGround(ctx, walker.groundY, walker.worldX, W);
+
+    const trouserFill = darkMode ? '#191919' : '#f4f4f4';
+    const rightFlash = walker.getShoeFlashIntensity('right');
+    const leftFlash  = walker.getShoeFlashIntensity('left');
+    const rightPhase = walker.phase;
+    const leftPhase  = (walker.phase + 0.5) % 1;
+    drawLeg(ctx, walker.leftLeg,  leftFlash,  trouserFill, leftPhase);
+    drawLeg(ctx, walker.rightLeg, rightFlash, trouserFill, rightPhase);
+
+    // Stones drawn AFTER legs. Trails first (behind stones), then stones.
+    ctx.save();
+    ctx.translate(walker.pelvisX - walker.worldX, 0);
+    if (showTrails) drawStoneTrails(ctx, stones.stones);
+    drawStones(ctx, stones.stones);
+    ctx.restore();
+
+    ctx.restore();
+    // ─── Exit zoomed world transform ────────────────────────────────
+
+    if (debugOverlay) {
+      ctx.save();
+      ctx.font = '12px monospace';
+      ctx.globalAlpha = 0.3;
+      ctx.textAlign = 'left';
+      ctx.fillText(
+        `phase: ${walker.phase.toFixed(2)}  worldX: ${walker.worldX.toFixed(0)}  stones: ${stones.stones.length}  trapped: ${stones.trappedCount}  sd:${SOLE_DEPTH}  zoom:${zoom}`,
+        12, H - 12,
+      );
+      ctx.restore();
+    }
   }
 
-  const dt = Math.min((now - lastTime) / 1000, 1 / 30);
-  lastTime = now;
+  requestAnimationFrame(frame);
 
-  walker.update(dt);
-  stones.update(walker, dt);
-
-  // Push the trapped-stone count to the DOM element (only when it
-  // changes, to avoid thrashing layout).
-  if (stoneCountEl && stones.trappedCount !== lastShownTrappedCount) {
-    stoneCountEl.textContent = String(stones.trappedCount);
-    lastShownTrappedCount = stones.trappedCount;
-  }
-
-  // Clear + background (screen space, no zoom).
-  ctx.clearRect(0, 0, W, H);
-  const bg = darkMode ? '#111111' : '#ffffff';
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
-
-  const stroke = darkMode ? '#e4e4e4' : '#1a1a1a';
-  ctx.strokeStyle = stroke;
-  ctx.fillStyle   = stroke;
-
-  // ─── Enter zoomed world transform ────────────────────────────────
-  // Canvas transform sends (x, y) in the subsequent draws to
-  //   screen_x = tx + ZOOM * x
-  //   screen_y = ty + ZOOM * y
-  // Solving for tx, ty so that world (pelvisX, groundY) lands at
-  // (W/2, H * GROUND_SCREEN_Y):
-  ctx.save();
-  const tx = W / 2 - ZOOM * walker.pelvisX;
-  const ty = H * GROUND_SCREEN_Y - ZOOM * walker.groundY;
-  ctx.translate(tx, ty);
-  ctx.scale(ZOOM, ZOOM);
-
-  // Ground (world space). Ticks scroll with walker.worldX; the `W` here
-  // is used inside drawGround as a loop upper bound and intentionally
-  // over-draws a bit past the zoomed viewport — harmless, gets clipped.
-  drawGround(ctx, walker.groundY, walker.worldX, W);
-
-  // Legs — right leg is always drawn LAST so it reads as closer to the
-  // camera. The filled trouser of the right leg occludes the left leg's
-  // outline wherever they overlap.
-  const trouserFill = darkMode ? '#191919' : '#f4f4f4';
-  const rightFlash = walker.getShoeFlashIntensity('right');
-  const leftFlash  = walker.getShoeFlashIntensity('left');
-  const rightPhase = walker.phase;
-  const leftPhase  = (walker.phase + 0.5) % 1;
-  drawLeg(ctx, walker.leftLeg,  leftFlash,  trouserFill, leftPhase);   // far
-  drawLeg(ctx, walker.rightLeg, rightFlash, trouserFill, rightPhase);  // near
-
-  // All stones drawn AFTER legs so they're visible on top of the filled
-  // shoe and trouser. In-shoe stones (red) appear on the shoe surface;
-  // static and flying stones appear in front of the foot.
-  ctx.save();
-  ctx.translate(walker.pelvisX - walker.worldX, 0);
-  drawStones(ctx, stones.stones);
-  ctx.restore();
-
-  ctx.restore();
-  // ─── Exit zoomed world transform ────────────────────────────────
-
-  // Debug overlay (screen space, unaffected by zoom).
-  ctx.save();
-  ctx.font = '12px monospace';
-  ctx.globalAlpha = 0.3;
-  ctx.textAlign = 'left';
-  // `sd:` exposes the loaded renderer.js's SOLE_DEPTH as a version marker:
-  //   sd:10   = current leg-proportional shoe
-  //   sd:6.5  = earlier halved profile
-  //   sd:13   = earlier spec-size profile
-  //   sd:33   = earliest 2.5x scaled profile
-  // If this shows anything other than sd:10, the browser is serving a
-  // cached copy of renderer.js and you need a hard refresh.
-  ctx.fillText(
-    `phase: ${walker.phase.toFixed(2)}  worldX: ${walker.worldX.toFixed(0)}  stones: ${stones.stones.length}  trapped: ${stones.trappedCount}  sd:${SOLE_DEPTH}  zoom:${ZOOM}`,
-    12, H - 12,
-  );
-  ctx.restore();
+  return { reset: resetView };
 }
 
-requestAnimationFrame(frame);
+// ── Act 1: full-figure below-waist framing, debug overlay on ────────
+createGaitView({
+  canvasEl: document.getElementById('canvas1'),
+  viewportEl: document.getElementById('viewport1'),
+  zoom: 1.7,
+  groundScreenY: 0.85,
+  showTrails: false,
+  stoneCountEl: document.getElementById('stoneCount'),
+  restartBtn: document.getElementById('restartBtn'),
+  debugOverlay: true,
+});
+
+// ── Act 2: close-up on the outsole at toe-off, with parabolic trails
+//    and live speed/stone-size sliders.
+//
+// Framing choice: zoom=2.2 zooms in ~30% more than Act 1 (1.7) so the
+// outsole and toe-off moment dominate the frame, but not so much that
+// stone arcs — which peak ~150 world-px above launch at default
+// settings — leave the top of the viewport entirely. groundScreenY=0.85
+// matches Act 1 so the ground anchor feels continuous when scrolling
+// between the two acts.
+createGaitView({
+  canvasEl: document.getElementById('canvas2'),
+  viewportEl: document.getElementById('viewport2'),
+  zoom: 2.2,
+  groundScreenY: 0.85,
+  showTrails: true,
+  speedSlider: document.getElementById('speed2'),
+  stoneSizeSlider: document.getElementById('stoneSize2'),
+});
