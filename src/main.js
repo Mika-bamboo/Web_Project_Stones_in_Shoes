@@ -10,9 +10,9 @@
 // up animation-code changes. Bump this in lockstep with index.html's
 // `<script src="src/main.js?v=N">` whenever you touch walker/leg/
 // renderer/stones. Keep all ?v= values identical across the project.
-import { Walker } from './walker.js?v=27';
-import { StoneSystem } from './stones.js?v=27';
-import { drawLeg, drawGround, drawStones, drawStoneTrails, SOLE_DEPTH } from './renderer.js?v=27';
+import { Walker } from './walker.js?v=28';
+import { StoneSystem } from './stones.js?v=28';
+import { drawLeg, drawGround, drawStones, drawStoneTrails, SOLE_DEPTH } from './renderer.js?v=28';
 
 // Dark-mode detection (shared across all views).
 let darkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
