@@ -107,8 +107,12 @@ document.querySelectorAll('input[type="range"]').forEach((slider) => {
 const shoeCards = document.querySelectorAll('#shoeGrid .shoe-card');
 shoeCards.forEach((card) => {
   card.addEventListener('click', () => {
-    shoeCards.forEach((c) => c.classList.remove('selected'));
+    shoeCards.forEach((c) => {
+      c.classList.remove('selected');
+      c.setAttribute('aria-pressed', 'false');
+    });
     card.classList.add('selected');
+    card.setAttribute('aria-pressed', 'true');
   });
 });
 
@@ -130,17 +134,27 @@ if (runBtn) {
 }
 
 // ── Shoe tabs (Act 6 — placeholder) ───────────────────────────────
-document.querySelectorAll('#shoeTabs6 .shoe-tab').forEach((tab) => {
+const shoeTabs6 = document.querySelectorAll('#shoeTabs6 .shoe-tab');
+shoeTabs6.forEach((tab) => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('#shoeTabs6 .shoe-tab').forEach((t) => t.classList.remove('active'));
+    shoeTabs6.forEach((t) => {
+      t.classList.remove('active');
+      t.setAttribute('aria-pressed', 'false');
+    });
     tab.classList.add('active');
+    tab.setAttribute('aria-pressed', 'true');
   });
 });
 
 // ── Scene cards (Act 6 — placeholder) ─────────────────────────────
-document.querySelectorAll('#sceneCards .scene-card').forEach((card) => {
+const sceneCards = document.querySelectorAll('#sceneCards .scene-card');
+sceneCards.forEach((card) => {
   card.addEventListener('click', () => {
-    document.querySelectorAll('#sceneCards .scene-card').forEach((c) => c.classList.remove('active'));
+    sceneCards.forEach((c) => {
+      c.classList.remove('active');
+      c.setAttribute('aria-pressed', 'false');
+    });
     card.classList.add('active');
+    card.setAttribute('aria-pressed', 'true');
   });
 });
