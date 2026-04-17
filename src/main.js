@@ -79,14 +79,38 @@ function createGaitView(opts) {
     restartBtn.addEventListener('click', resetView);
   }
 
-  // Retina-aware sizing.
+  // Retina-aware sizing. Also re-anchors the walker's ground line to the
+  // current viewport height — without this, resizing the window after
+  // walker initialization leaves groundY frozen at the old height, and
+  // the shoe either floats above or sinks below the drawn ground line.
   function resize() {
     const rect = viewportEl.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
     const dpr = window.devicePixelRatio || 1;
-    canvasEl.width  = rect.width  * dpr;
-    canvasEl.height = rect.height * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const targetW = rect.width  * dpr;
+    const targetH = rect.height * dpr;
+    if (canvasEl.width !== targetW || canvasEl.height !== targetH) {
+      canvasEl.width  = targetW;
+      canvasEl.height = targetH;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    if (walker) {
+      const newGroundY = rect.height * 0.78;
+      if (newGroundY !== walker.groundY) {
+        // Static stones are frozen at (groundY − r) from when they spawned,
+        // so shift them by the same delta to keep them on the ground.
+        // Flying stones will self-correct on their next landing; in-shoe
+        // stones are pinned to the foot and re-projected each frame.
+        const dy = newGroundY - walker.groundY;
+        walker.groundY = newGroundY;
+        if (stones) {
+          for (const s of stones.stones) {
+            if (s.state === 'static') s.y += dy;
+          }
+        }
+      }
+    }
   }
 
   // Slider-driven parameters.
