@@ -294,9 +294,13 @@ export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null, localP
     const thighEnd  = { x: leg.knee.x + OV * tdx / tlen, y: leg.knee.y + OV * tdy / tlen };
     const shankStart = { x: leg.knee.x - OV * sdx / slen, y: leg.knee.y - OV * sdy / slen };
 
-    // Two overlapping filled+stroked tubes with tilt compensation.
-    drawMuscledTube(ctx, leg.hip,   thighEnd,  TROUSER_THIGH_BACK, TROUSER_THIGH_FRONT, true, true);
-    drawMuscledTube(ctx, shankStart, leg.ankle, TROUSER_SHANK_BACK, TROUSER_SHANK_FRONT, true, true);
+    // Two overlapping filled+stroked tubes. Tilt compensation is OFF
+    // (last arg `false`): keeping the trouser's on-screen horizontal
+    // extent constant during swing was visibly puffing the calf by up
+    // to 30% when the knee flexed past ~45°. Perpendicular-to-limb
+    // widths are the right model for fabric wrapping a rotating leg.
+    drawMuscledTube(ctx, leg.hip,   thighEnd,  TROUSER_THIGH_BACK, TROUSER_THIGH_FRONT, true, false);
+    drawMuscledTube(ctx, shankStart, leg.ankle, TROUSER_SHANK_BACK, TROUSER_SHANK_FRONT, true, false);
 
     // Filled knee patch: covers any remaining sliver at the joint.
     const kneeR = (TROUSER_THIGH_BACK[5] + TROUSER_THIGH_FRONT[5]) / 2;
