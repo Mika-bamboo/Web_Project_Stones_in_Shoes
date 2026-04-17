@@ -229,4 +229,5 @@ createGaitView({
   showTrails: true,
   speedSlider: document.getElementById('speed2'),
   stoneSizeSlider: document.getElementById('stoneSize2'),
+  restartBtn: document.getElementById('restartBtn2'),
 });
