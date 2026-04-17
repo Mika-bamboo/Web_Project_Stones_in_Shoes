@@ -11,7 +11,7 @@
 // suffix here or it'll bypass the importmap.
 import { Walker } from 'walker';
 import { StoneSystem } from 'stones';
-import { drawLeg, drawGround, drawStones, drawStoneTrails, buildSneakerProfile, SOLE_DEPTH } from 'renderer';
+import { drawLeg, drawGround, drawStones, drawStoneTrails, SOLE_DEPTH } from 'renderer';
 
 // Dark-mode detection (shared across all views).
 let darkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -261,28 +261,14 @@ createGaitView({
   restartBtn: document.getElementById('restartBtn2'),
 });
 
-// ── Act 3: extreme close-up on the ankle/collar with live-editable
-//    shoe geometry. The existing gait cycle rotates the foot under the
-//    ankle, so the V-shaped collar opening naturally sweeps past the
-//    ankle each step — that's the "breathing door" the narrative wants
-//    to highlight. The collarHeight + heelNotch sliders feed
-//    buildSneakerProfile() per frame so shape edits take effect live.
-//
-//    Slider mapping:
-//      collarHeight (1–10) → h = 6 + slider   (range 7..16, default@3 = 9)
-//      heelNotch    (1–10) → w = slider       (range 1..10, default@7 = 7)
-//    The reference SNEAKER in renderer.js corresponds to collarHeight
-//    slider = 5 (h=11) and heelNotch slider = 5 (w=5).
-const collarHeightSlider = document.getElementById('collarHeight');
-const heelNotchSlider    = document.getElementById('heelNotch');
-createGaitView({
+// Act 3 lives in its own module. The "looking down at your own shoe"
+// camera angle has nothing in common with the side-profile walker in
+// Acts 1/2 — no gait kinematics, no scrolling world, no StoneSystem —
+// so it gets a dedicated renderer.
+import { createCrossSectionView } from 'crossSection';
+createCrossSectionView({
   canvasEl: document.getElementById('canvas3'),
   viewportEl: document.getElementById('viewport3'),
-  zoom: 4.5,
-  groundScreenY: 1.05,   // push ground off-frame so the ankle fills the view
-  showTrails: false,
-  shoeProfileFn: () => buildSneakerProfile({
-    collarHeight: collarHeightSlider ? 6 + parseFloat(collarHeightSlider.value) : undefined,
-    heelNotch:    heelNotchSlider    ?     parseFloat(heelNotchSlider.value)    : undefined,
-  }),
+  collarHeightSlider: document.getElementById('collarHeight'),
+  heelNotchSlider:    document.getElementById('heelNotch'),
 });
