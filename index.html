@@ -901,139 +901,35 @@
 
 
 <!-- ============================================================ -->
-<!-- JavaScript: Intersection Observer + UI wiring                -->
+<!-- JavaScript: importmap entry + UI/gait modules                -->
 <!-- ============================================================ -->
-<script>
-(function () {
-  "use strict";
+<!--
+  Single source of truth for module versioning. Bump the `?v=N` query
+  on every mapped path in lockstep when you touch any src/*.js file;
+  browsers will fetch a fresh copy on the next plain reload.
 
-  /* ---- Intersection Observer: act visibility + nav dots ---- */
-  const acts = document.querySelectorAll(".act");
-  const dots = document.querySelectorAll(".act-dot");
-  let currentAct = 1;
-
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        /* Fade in on enter */
-        if (entry.isIntersecting) {
-          entry.target.classList.add("visible");
-          const actNum = parseInt(entry.target.dataset.act, 10);
-          if (actNum !== currentAct) {
-            currentAct = actNum;
-            updateNav(actNum);
-          }
-        }
-      });
-    },
-    { threshold: 0.25 }
-  );
-
-  acts.forEach((act) => observer.observe(act));
-
-  function updateNav(actNum) {
-    dots.forEach((dot) => {
-      dot.classList.toggle("active", parseInt(dot.dataset.act, 10) === actNum);
-    });
-    /* Update progress bar */
-    const pct = ((actNum - 1) / (acts.length - 1)) * 100;
-    document.getElementById("progressBar").style.width = pct + "%";
+  Internal imports inside src/*.js use the BARE specifiers declared
+  here (e.g. `import { Walker } from 'walker'`). Do not hardcode
+  `./walker.js` or any `?v=` suffix inside src/*.js — it would bypass
+  this map and reintroduce the scattered-cache-buster problem.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "gait":     "./src/gait.js?v=29",
+    "leg":      "./src/leg.js?v=29",
+    "walker":   "./src/walker.js?v=29",
+    "stones":   "./src/stones.js?v=29",
+    "renderer": "./src/renderer.js?v=29",
+    "ui":       "./src/ui.js?v=29",
+    "main":     "./src/main.js?v=29"
   }
-
-  /* ---- Nav dot clicks ---- */
-  dots.forEach((dot) => {
-    dot.addEventListener("click", () => {
-      const target = document.getElementById("act" + dot.dataset.act);
-      if (target) target.scrollIntoView({ behavior: "smooth" });
-    });
-  });
-
-  /* ---- Next buttons ---- */
-  document.querySelectorAll(".act-next").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const target = document.getElementById(btn.dataset.target);
-      if (target) target.scrollIntoView({ behavior: "smooth" });
-    });
-  });
-
-  /* ---- Sound toggle ---- */
-  const soundBtn = document.getElementById("soundToggle");
-  soundBtn.addEventListener("click", () => {
-    soundBtn.classList.toggle("active");
-  });
-
-  /* ---- Slider value display ---- */
-  document.querySelectorAll('input[type="range"]').forEach((slider) => {
-    const display = document.querySelector(`.val[data-for="${slider.id}"]`);
-    if (!display) return;
-    slider.addEventListener("input", () => {
-      let text = slider.value;
-      /* Add units / labels for specific sliders */
-      if (slider.id === "stoneSize2" || slider.id === "size6") text += " mm";
-      if (slider.id === "collarHeight") {
-        const labels = ["","Very low","Low","Low","Med-low","Med","Med","Med-high","High","High","Very high"];
-        text = labels[parseInt(slider.value, 10)] || slider.value;
-      }
-      if (slider.id === "heelNotch") {
-        const labels = ["","Narrow","Narrow","Med-narrow","Med","Med","Med","Med-wide","Wide","Wide","Very wide"];
-        text = labels[parseInt(slider.value, 10)] || slider.value;
-      }
-      display.textContent = text;
-    });
-  });
-
-  /* ---- Shoe card selection (Act 4) ---- */
-  const shoeCards = document.querySelectorAll("#shoeGrid .shoe-card");
-  shoeCards.forEach((card) => {
-    card.addEventListener("click", () => {
-      shoeCards.forEach((c) => c.classList.remove("selected"));
-      card.classList.add("selected");
-    });
-  });
-
-  /* ---- Run button placeholder (Act 4) ---- */
-  document.getElementById("runBtn").addEventListener("click", () => {
-    const selected = document.querySelector("#shoeGrid .shoe-card.selected");
-    if (!selected) {
-      /* Flash all cards briefly to hint selection is needed */
-      shoeCards.forEach((c) => {
-        c.style.borderColor = "var(--accent)";
-        setTimeout(() => { c.style.borderColor = ""; }, 600);
-      });
-      return;
-    }
-    /* Placeholder: scroll to Act 5 reveal */
-    document.getElementById("act5").scrollIntoView({ behavior: "smooth" });
-  });
-
-  /* ---- Shoe tabs (Act 6) ---- */
-  document.querySelectorAll("#shoeTabs6 .shoe-tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      document.querySelectorAll("#shoeTabs6 .shoe-tab").forEach((t) => t.classList.remove("active"));
-      tab.classList.add("active");
-    });
-  });
-
-  /* ---- Scene cards (Act 6) ---- */
-  document.querySelectorAll("#sceneCards .scene-card").forEach((card) => {
-    card.addEventListener("click", () => {
-      document.querySelectorAll("#sceneCards .scene-card").forEach((c) => c.classList.remove("active"));
-      card.classList.add("active");
-    });
-  });
-
-  /* ================================================================
-     ACT 1 — Gait animation (forward kinematics model)
-     Loaded as ES module from src/main.js.
-     See docs/gait-model-spec.md for architecture.
-     ================================================================ */
-
-})();
+}
 </script>
-<!-- `?v=N` is a cache buster for the ES-module chain. Bump N whenever
-     gait animation code (walker/leg/renderer/stones) changes and you
-     want a hard reload without forcing users to clear cache. -->
-<script type="module" src="src/main.js?v=28"></script>
+<script type="module">
+  import 'ui';
+  import 'main';
+</script>
 
 </body>
 </html>

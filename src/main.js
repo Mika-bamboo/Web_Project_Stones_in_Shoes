@@ -6,13 +6,12 @@
 // per-act framing, controls, and overlays. Act 1 and Act 2 are wired at
 // the bottom of this file.
 //
-// Cache-buster `?v=N` on every relative import so a plain refresh picks
-// up animation-code changes. Bump this in lockstep with index.html's
-// `<script src="src/main.js?v=N">` whenever you touch walker/leg/
-// renderer/stones. Keep all ?v= values identical across the project.
-import { Walker } from './walker.js?v=28';
-import { StoneSystem } from './stones.js?v=28';
-import { drawLeg, drawGround, drawStones, drawStoneTrails, SOLE_DEPTH } from './renderer.js?v=28';
+// Imports are bare specifiers resolved by the `<script type="importmap">`
+// block in index.html. Cache-busting `?v=N` lives there — do not add a
+// suffix here or it'll bypass the importmap.
+import { Walker } from 'walker';
+import { StoneSystem } from 'stones';
+import { drawLeg, drawGround, drawStones, drawStoneTrails, SOLE_DEPTH } from 'renderer';
 
 // Dark-mode detection (shared across all views).
 let darkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
