@@ -294,9 +294,13 @@ export function drawLeg(ctx, leg, flashIntensity = 0, trouserFill = null, localP
     const thighEnd  = { x: leg.knee.x + OV * tdx / tlen, y: leg.knee.y + OV * tdy / tlen };
     const shankStart = { x: leg.knee.x - OV * sdx / slen, y: leg.knee.y - OV * sdy / slen };
 
-    // Two overlapping filled+stroked tubes with tilt compensation.
-    drawMuscledTube(ctx, leg.hip,   thighEnd,  TROUSER_THIGH_BACK, TROUSER_THIGH_FRONT, true, true);
-    drawMuscledTube(ctx, shankStart, leg.ankle, TROUSER_SHANK_BACK, TROUSER_SHANK_FRONT, true, true);
+    // Two overlapping filled+stroked tubes. Tilt compensation is OFF
+    // (last arg `false`): keeping the trouser's on-screen horizontal
+    // extent constant during swing was visibly puffing the calf by up
+    // to 30% when the knee flexed past ~45°. Perpendicular-to-limb
+    // widths are the right model for fabric wrapping a rotating leg.
+    drawMuscledTube(ctx, leg.hip,   thighEnd,  TROUSER_THIGH_BACK, TROUSER_THIGH_FRONT, true, false);
+    drawMuscledTube(ctx, shankStart, leg.ankle, TROUSER_SHANK_BACK, TROUSER_SHANK_FRONT, true, false);
 
     // Filled knee patch: covers any remaining sliver at the joint.
     const kneeR = (TROUSER_THIGH_BACK[5] + TROUSER_THIGH_FRONT[5]) / 2;
@@ -353,4 +357,33 @@ export function drawStones(ctx, stones) {
     ctx.fill();
   }
   ctx.fillStyle = defaultFill;
+}
+
+// Dotted parabolic trajectory trails behind every flying stone. Each
+// trail point is rendered as a small accent-colored dot with alpha that
+// ramps from transparent (oldest) to opaque (newest), so the arc reads
+// as a motion-smeared dotted line. Used in Act 2 to visualize kick-up
+// arcs (design-spec §Act 2).
+//
+// Note: the accent color is hard-coded to coral — the project's single
+// non-monochrome color per design-spec §Visual style. If the theme
+// system ever grows, plumb a color through here.
+const TRAIL_COLOR_RGB = '216, 90, 48';   // #D85A30 (accent)
+const TRAIL_DOT_R     = 1.2;
+
+export function drawStoneTrails(ctx, stones) {
+  const savedFill = ctx.fillStyle;
+  for (const s of stones) {
+    if (!s.trail || s.trail.length < 2) continue;
+    const n = s.trail.length;
+    for (let i = 0; i < n; i++) {
+      // Oldest point: alpha ≈ 0. Newest: alpha ≈ 0.9.
+      const t = (i + 1) / n;
+      ctx.fillStyle = `rgba(${TRAIL_COLOR_RGB}, ${t * 0.9})`;
+      ctx.beginPath();
+      ctx.arc(s.trail[i].x, s.trail[i].y, TRAIL_DOT_R, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.fillStyle = savedFill;
 }
