@@ -44,6 +44,10 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
 //                            walker.cadence (value 1–10 → 0.2–2.0 Hz)
 //   stoneSizeSlider        — optional <input type="range"> driving stone
 //                            radius range (value 2–8 mm)
+//   shoeProfileFn          — optional () => points[] callback invoked
+//                            each frame; lets Act 3 regenerate the shoe
+//                            outline live from collar-height / heel-notch
+//                            sliders without rebuilding the view
 function createGaitView(opts) {
   const {
     canvasEl,
@@ -56,6 +60,7 @@ function createGaitView(opts) {
     debugOverlay = false,
     speedSlider = null,
     stoneSizeSlider = null,
+    shoeProfileFn = null,
   } = opts;
 
   if (!canvasEl || !viewportEl) return;
@@ -79,14 +84,38 @@ function createGaitView(opts) {
     restartBtn.addEventListener('click', resetView);
   }
 
-  // Retina-aware sizing.
+  // Retina-aware sizing. Also re-anchors the walker's ground line to the
+  // current viewport height — without this, resizing the window after
+  // walker initialization leaves groundY frozen at the old height, and
+  // the shoe either floats above or sinks below the drawn ground line.
   function resize() {
     const rect = viewportEl.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
     const dpr = window.devicePixelRatio || 1;
-    canvasEl.width  = rect.width  * dpr;
-    canvasEl.height = rect.height * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const targetW = rect.width  * dpr;
+    const targetH = rect.height * dpr;
+    if (canvasEl.width !== targetW || canvasEl.height !== targetH) {
+      canvasEl.width  = targetW;
+      canvasEl.height = targetH;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    if (walker) {
+      const newGroundY = rect.height * 0.78;
+      if (newGroundY !== walker.groundY) {
+        // Static stones are frozen at (groundY − r) from when they spawned,
+        // so shift them by the same delta to keep them on the ground.
+        // Flying stones will self-correct on their next landing; in-shoe
+        // stones are pinned to the foot and re-projected each frame.
+        const dy = newGroundY - walker.groundY;
+        walker.groundY = newGroundY;
+        if (stones) {
+          for (const s of stones.stones) {
+            if (s.state === 'static') s.y += dy;
+          }
+        }
+      }
+    }
   }
 
   // Slider-driven parameters.
@@ -168,8 +197,9 @@ function createGaitView(opts) {
     const leftFlash  = walker.getShoeFlashIntensity('left');
     const rightPhase = walker.phase;
     const leftPhase  = (walker.phase + 0.5) % 1;
-    drawLeg(ctx, walker.leftLeg,  leftFlash,  trouserFill, leftPhase);
-    drawLeg(ctx, walker.rightLeg, rightFlash, trouserFill, rightPhase);
+    const shoeProfile = shoeProfileFn ? shoeProfileFn() : null;
+    drawLeg(ctx, walker.leftLeg,  leftFlash,  trouserFill, leftPhase,  shoeProfile);
+    drawLeg(ctx, walker.rightLeg, rightFlash, trouserFill, rightPhase, shoeProfile);
 
     // Stones drawn AFTER legs. Trails first (behind stones), then stones.
     ctx.save();
@@ -229,4 +259,16 @@ createGaitView({
   speedSlider: document.getElementById('speed2'),
   stoneSizeSlider: document.getElementById('stoneSize2'),
   restartBtn: document.getElementById('restartBtn2'),
+});
+
+// Act 3 lives in its own module. The "looking down at your own shoe"
+// camera angle has nothing in common with the side-profile walker in
+// Acts 1/2 — no gait kinematics, no scrolling world, no StoneSystem —
+// so it gets a dedicated renderer.
+import { createCrossSectionView } from 'crossSection';
+createCrossSectionView({
+  canvasEl: document.getElementById('canvas3'),
+  viewportEl: document.getElementById('viewport3'),
+  collarHeightSlider: document.getElementById('collarHeight'),
+  heelNotchSlider:    document.getElementById('heelNotch'),
 });

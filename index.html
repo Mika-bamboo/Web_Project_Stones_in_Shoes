@@ -334,6 +334,12 @@
     cursor: pointer;
     transition: border-color 0.2s, box-shadow 0.2s;
     position: relative;
+    font: inherit;
+    color: inherit;
+  }
+  .shoe-card:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .shoe-card:hover {
     border-color: var(--accent);
@@ -479,6 +485,13 @@
     cursor: pointer;
     transition: all 0.2s;
     background: var(--bg);
+    font: inherit;
+    color: inherit;
+  }
+  .scene-card:focus-visible,
+  .shoe-tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .scene-card:hover { border-color: var(--text-tertiary); }
   .scene-card.active {
@@ -694,10 +707,7 @@
   <div class="act-desc">The padded opening around your ankle — the collar — rhythmically opens and closes with every step. Each cycle creates a momentary gap where stones can slip through.</div>
 
   <div class="viewport" id="viewport3">
-    <div class="viewport-label">
-      Cross-section: ankle area
-      <span>Collar gap opening &amp; closing with the gait cycle</span>
-    </div>
+    <canvas id="canvas3"></canvas>
   </div>
 
   <div class="controls">
@@ -728,27 +738,27 @@
   <div class="act-title">Which shoe traps the most stones?</div>
   <div class="act-desc">Pick the shoe you think retains the most stones after 100 steps on loose gravel. Then run the simulation to find out.</div>
 
-  <div class="shoe-grid" id="shoeGrid">
-    <div class="shoe-card" data-shoe="sandal">
+  <div class="shoe-grid" id="shoeGrid" role="group" aria-label="Shoe type">
+    <button type="button" class="shoe-card" data-shoe="sandal" aria-pressed="false">
       <div class="shoe-card-icon">[ Sandal profile ]</div>
       <div class="shoe-card-name">Sandal</div>
       <div class="shoe-card-detail">Open vamp, no collar</div>
-    </div>
-    <div class="shoe-card" data-shoe="sneaker">
+    </button>
+    <button type="button" class="shoe-card" data-shoe="sneaker" aria-pressed="false">
       <div class="shoe-card-icon">[ Sneaker profile ]</div>
       <div class="shoe-card-name">Low-cut Sneaker</div>
       <div class="shoe-card-detail">Low collar, heel notch</div>
-    </div>
-    <div class="shoe-card" data-shoe="oxford">
+    </button>
+    <button type="button" class="shoe-card" data-shoe="oxford" aria-pressed="false">
       <div class="shoe-card-icon">[ Oxford profile ]</div>
       <div class="shoe-card-name">Oxford</div>
       <div class="shoe-card-detail">Laced throat, tongue gap</div>
-    </div>
-    <div class="shoe-card" data-shoe="boot">
+    </button>
+    <button type="button" class="shoe-card" data-shoe="boot" aria-pressed="false">
       <div class="shoe-card-icon">[ Boot profile ]</div>
       <div class="shoe-card-name">Hiking Boot</div>
       <div class="shoe-card-detail">Tall shaft, scree collar</div>
-    </div>
+    </button>
   </div>
 
   <div style="text-align:center;">
@@ -821,12 +831,12 @@
   <div class="act-title">Explore freely</div>
   <div class="act-desc">Every parameter from the story, now under your control. Pick a shoe, choose a surface, adjust conditions, and watch.</div>
 
-  <div class="shoe-tabs" id="shoeTabs6">
-    <button class="shoe-tab active" data-shoe="sneaker">Sneaker</button>
-    <button class="shoe-tab" data-shoe="sandal">Sandal</button>
-    <button class="shoe-tab" data-shoe="oxford">Oxford</button>
-    <button class="shoe-tab" data-shoe="hightop">High-top</button>
-    <button class="shoe-tab" data-shoe="boot">Boot</button>
+  <div class="shoe-tabs" id="shoeTabs6" role="group" aria-label="Shoe type">
+    <button type="button" class="shoe-tab active" data-shoe="sneaker" aria-pressed="true">Sneaker</button>
+    <button type="button" class="shoe-tab" data-shoe="sandal" aria-pressed="false">Sandal</button>
+    <button type="button" class="shoe-tab" data-shoe="oxford" aria-pressed="false">Oxford</button>
+    <button type="button" class="shoe-tab" data-shoe="hightop" aria-pressed="false">High-top</button>
+    <button type="button" class="shoe-tab" data-shoe="boot" aria-pressed="false">Boot</button>
   </div>
 
   <div class="viewport" id="viewport6" style="aspect-ratio: 16/10;">
@@ -836,27 +846,27 @@
     </div>
   </div>
 
-  <div class="scene-cards" id="sceneCards">
-    <div class="scene-card active" data-surface="construction">
+  <div class="scene-cards" id="sceneCards" role="group" aria-label="Surface scene">
+    <button type="button" class="scene-card active" data-surface="construction" aria-pressed="true">
       <div class="scene-card-texture"></div>
       <div class="scene-card-name">Fresh construction</div>
       <div class="scene-card-detail">Abundant gravel</div>
-    </div>
-    <div class="scene-card" data-surface="gravel-path">
+    </button>
+    <button type="button" class="scene-card" data-surface="gravel-path" aria-pressed="false">
       <div class="scene-card-texture"></div>
       <div class="scene-card-name">Park gravel path</div>
       <div class="scene-card-detail">Moderate gravel</div>
-    </div>
-    <div class="scene-card" data-surface="sidewalk">
+    </button>
+    <button type="button" class="scene-card" data-surface="sidewalk" aria-pressed="false">
       <div class="scene-card-texture"></div>
       <div class="scene-card-name">City sidewalk</div>
       <div class="scene-card-detail">Occasional debris</div>
-    </div>
-    <div class="scene-card" data-surface="marble">
+    </button>
+    <button type="button" class="scene-card" data-surface="marble" aria-pressed="false">
       <div class="scene-card-texture"></div>
       <div class="scene-card-name">Marble pavement</div>
       <div class="scene-card-detail">Near-zero stones</div>
-    </div>
+    </button>
   </div>
 
   <div class="controls">
@@ -916,13 +926,14 @@
 <script type="importmap">
 {
   "imports": {
-    "gait":     "./src/gait.js?v=30",
-    "leg":      "./src/leg.js?v=30",
-    "walker":   "./src/walker.js?v=30",
-    "stones":   "./src/stones.js?v=30",
-    "renderer": "./src/renderer.js?v=30",
-    "ui":       "./src/ui.js?v=30",
-    "main":     "./src/main.js?v=30"
+    "gait":         "./src/gait.js?v=32",
+    "leg":          "./src/leg.js?v=32",
+    "walker":       "./src/walker.js?v=32",
+    "stones":       "./src/stones.js?v=32",
+    "renderer":     "./src/renderer.js?v=32",
+    "crossSection": "./src/crossSection.js?v=32",
+    "ui":           "./src/ui.js?v=32",
+    "main":         "./src/main.js?v=32"
   }
 }
 </script>
