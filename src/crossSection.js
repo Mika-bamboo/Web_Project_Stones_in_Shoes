@@ -1,17 +1,14 @@
-// Act 3 — static illustration of a foot-in-shoe, viewed at the same
-// down-the-leg angle as the reference photo. No gait kinematics, no
-// stones, no shared state with Acts 1/2. Animation will be added later.
+// Act 3 — static foot-in-shoe line art at the photo's down-the-leg angle.
 //
-// Composition (mirrors the reference image):
-//   • carpet background, top-left corner showing a sliver of a white
-//     surface (the laptop edge in the photo)
-//   • navy trouser leg entering from the lower-left
-//   • white ribbed sock with thin pink/blue stripes at the cuff,
-//     emerging from the trouser into the shoe collar
-//   • black leather oxford-style shoe pointing to the upper-right,
-//     with laces over the throat and a rounded toe cap
+// Style matches Acts 1/2: plain theme background, single stroke color,
+// light gray fill for limbs/shoe. No carpet, no sock stripes, no accent
+// color — just monochrome outlines. Animation will be added later.
 //
-// The whole scene is drawn once on init and again on every resize.
+// Scene:
+//   • leg tube rising from the bottom-left, tilted toward upper-right
+//   • narrow sock band where the leg meets the shoe collar
+//   • oxford-style shoe silhouette pointing up-right, with laces, toe
+//     cap seam, and a visible collar opening
 
 export function createCrossSectionView(opts) {
   const { canvasEl, viewportEl } = opts;
@@ -40,22 +37,36 @@ export function createCrossSectionView(opts) {
     return false;
   }
 
+  function theme() {
+    // Shared with Acts 1/2 so the three canvases read as one world.
+    return darkMode
+      ? { bg: '#111111', stroke: '#e4e4e4', fill: '#191919', fillAlt: '#222222', inside: '#050505' }
+      : { bg: '#ffffff', stroke: '#1a1a1a', fill: '#f4f4f4', fillAlt: '#e8e8e8', inside: '#d9d9d9' };
+  }
+
   function draw() {
-    if (!resize() && canvasEl.width === 0) return;
+    resize();
     const W = canvasEl.width  / (window.devicePixelRatio || 1);
     const H = canvasEl.height / (window.devicePixelRatio || 1);
     if (W === 0 || H === 0) return;
 
-    drawCarpet(ctx, W, H, darkMode);
-    drawLaptopCorner(ctx, W, H, darkMode);
-    drawTrouser(ctx, W, H);
-    drawSock(ctx, W, H);
-    drawShoe(ctx, W, H);
+    const t = theme();
+
+    ctx.fillStyle = t.bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Scene geometry — anchor points scale with viewport.
+    // Leg rises from near the bottom-left; ankle sits just past the
+    // middle, with the toe tipping into the upper-right quadrant.
+    const ankle = { x: W * 0.44, y: H * 0.58 };
+    const toe   = { x: W * 0.86, y: H * 0.22 };
+    const legBase = { x: W * 0.12, y: H * 1.05 };
+
+    drawLeg(ctx, legBase, ankle, t);
+    drawShoe(ctx, ankle, toe, t);
   }
 
-  // Initial draw — wait one frame so the viewport has a measured size.
   requestAnimationFrame(draw);
-  // Subsequent draws on container size changes.
   if (typeof ResizeObserver !== 'undefined') {
     new ResizeObserver(draw).observe(viewportEl);
   } else {
@@ -63,313 +74,186 @@ export function createCrossSectionView(opts) {
   }
 }
 
-// ── Background: carpet + speckle ─────────────────────────────────────
+// ── Leg ──────────────────────────────────────────────────────────────
+// A tapered tube from an off-canvas base point up to the ankle. Wider
+// at the base (thigh/calf) than at the ankle. Filled in light theme
+// gray and outlined in the theme stroke color — same treatment the
+// side-profile walker uses for the trousers in Acts 1/2.
 
-function drawCarpet(ctx, W, H, darkMode) {
-  const base = darkMode ? '#3a3a3a' : '#8a8a88';
-  ctx.fillStyle = base;
-  ctx.fillRect(0, 0, W, H);
+function drawLeg(ctx, base, ankle, t) {
+  const dx = ankle.x - base.x;
+  const dy = ankle.y - base.y;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return;
 
-  // Procedural speckle. Density scales with viewport area so a wider
-  // canvas doesn't look bare. Seeded from a small loop counter so the
-  // pattern is stable across redraws (no flicker on resize).
-  const speckleCount = Math.floor((W * H) / 90);
-  const lightSpeckle = darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.18)';
-  const darkSpeckle  = darkMode ? 'rgba(0,0,0,0.30)'      : 'rgba(0,0,0,0.18)';
+  // Unit perpendicular to the leg axis.
+  const px = -dy / len;
+  const py =  dx / len;
 
-  for (let i = 0; i < speckleCount; i++) {
-    const x = pseudoRand(i * 3 + 1) * W;
-    const y = pseudoRand(i * 3 + 2) * H;
-    const r = 0.4 + pseudoRand(i * 3 + 3) * 0.9;
-    ctx.fillStyle = (i % 2 === 0) ? lightSpeckle : darkSpeckle;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
+  const baseHalfW  = Math.max(28, len * 0.16);
+  const ankleHalfW = Math.max(18, len * 0.09);
 
-// Sliver of a white object (laptop in the photo) jutting in from the
-// upper-left corner. Draws as a tilted polygon with a thin grey edge.
-function drawLaptopCorner(ctx, W, H, darkMode) {
-  const fill   = darkMode ? '#cfcfcf' : '#ededea';
-  const edge   = darkMode ? '#888888' : '#bcbcb8';
-  const span   = Math.min(W, H) * 0.55;
+  const bL = { x: base.x  + px * baseHalfW,   y: base.y  + py * baseHalfW  };
+  const bR = { x: base.x  - px * baseHalfW,   y: base.y  - py * baseHalfW  };
+  const aR = { x: ankle.x - px * ankleHalfW,  y: ankle.y - py * ankleHalfW };
+  const aL = { x: ankle.x + px * ankleHalfW,  y: ankle.y + py * ankleHalfW };
 
+  // Body.
   ctx.beginPath();
-  ctx.moveTo(0, H * 0.32);
-  ctx.lineTo(span * 0.95, 0);
-  ctx.lineTo(0, 0);
+  ctx.moveTo(bL.x, bL.y);
+  ctx.lineTo(bR.x, bR.y);
+  ctx.lineTo(aR.x, aR.y);
+  ctx.lineTo(aL.x, aL.y);
   ctx.closePath();
-  ctx.fillStyle = fill;
+  ctx.fillStyle = t.fill;
   ctx.fill();
-
-  ctx.beginPath();
-  ctx.moveTo(0, H * 0.32);
-  ctx.lineTo(span * 0.95, 0);
-  ctx.strokeStyle = edge;
+  ctx.strokeStyle = t.stroke;
   ctx.lineWidth = 1.5;
   ctx.stroke();
-}
 
-// ── Trouser leg ──────────────────────────────────────────────────────
-// A tapered navy quad rising from the lower-left corner, ending at the
-// sock cuff. Tilt matches the photo's perspective.
-
-function drawTrouser(ctx, W, H) {
-  // Anchor points relative to the canvas size so the geometry scales.
-  const cuffCx = W * 0.40;
-  const cuffCy = H * 0.62;
-  const cuffHalfW = W * 0.16;
-
-  // Bottom corners — wider, anchored at the lower-left edge of the canvas.
-  const baseLx = -W * 0.05;
-  const baseLy = H * 1.05;
-  const baseRx = W * 0.42;
-  const baseRy = H * 1.05;
-
-  // Cuff corners. Tilted so the front of the cuff (toward the shoe) is
-  // higher than the back.
-  const cuffBackX  = cuffCx - cuffHalfW * 1.05;
-  const cuffBackY  = cuffCy + 18;
-  const cuffFrontX = cuffCx + cuffHalfW * 0.95;
-  const cuffFrontY = cuffCy - 8;
-
-  // Fill — gradient from a slightly darker navy at the back to a brighter
-  // navy at the cuff, suggesting the soft falloff of fabric.
-  const grad = ctx.createLinearGradient(baseLx, baseLy, cuffFrontX, cuffFrontY);
-  grad.addColorStop(0, '#161a2a');
-  grad.addColorStop(1, '#252b44');
-
+  // Sock band: a short slightly-wider strip just below the ankle where
+  // the sock cuff shows above the shoe. Two parallel faint lines read
+  // as ribbing.
+  const bandT0 = 0.84;
+  const bandT1 = 0.98;
+  const bandHalfW = ankleHalfW + 2;
+  const sBL = lerp2(bL, aL, bandT0);
+  const sBR = lerp2(bR, aR, bandT0);
+  const sTL = lerp2(bL, aL, bandT1);
+  const sTR = lerp2(bR, aR, bandT1);
+  // Expand the band outward slightly so it peeks past the leg outline.
+  const expand = (p, outwardSign) => ({
+    x: p.x + px * outwardSign * 2,
+    y: p.y + py * outwardSign * 2,
+  });
+  const eBL = expand(sBL,  1);
+  const eBR = expand(sBR, -1);
+  const eTR = expand(sTR, -1);
+  const eTL = expand(sTL,  1);
   ctx.beginPath();
-  ctx.moveTo(baseLx, baseLy);
-  ctx.lineTo(baseRx, baseRy);
-  ctx.lineTo(cuffFrontX, cuffFrontY);
-  ctx.lineTo(cuffBackX,  cuffBackY);
+  ctx.moveTo(eBL.x, eBL.y);
+  ctx.lineTo(eBR.x, eBR.y);
+  ctx.lineTo(eTR.x, eTR.y);
+  ctx.lineTo(eTL.x, eTL.y);
   ctx.closePath();
-  ctx.fillStyle = grad;
+  ctx.fillStyle = t.bg;
   ctx.fill();
-
-  // Subtle vertical fabric folds — three faint dark stripes running
-  // roughly along the leg's long axis.
-  ctx.save();
-  ctx.globalAlpha = 0.18;
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 1;
-  for (let i = 1; i <= 3; i++) {
-    const t = i / 4;
-    const topX = cuffBackX + (cuffFrontX - cuffBackX) * t;
-    const topY = cuffBackY + (cuffFrontY - cuffBackY) * t;
-    const botX = baseLx + (baseRx - baseLx) * t;
-    const botY = baseLy + (baseRy - baseLy) * t;
-    ctx.beginPath();
-    ctx.moveTo(topX, topY);
-    ctx.lineTo(botX, botY);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // Cuff edge — a thin dark line where the trouser stops and the sock
-  // shows through. Reads as the hem.
-  ctx.beginPath();
-  ctx.moveTo(cuffBackX,  cuffBackY);
-  ctx.lineTo(cuffFrontX, cuffFrontY);
-  ctx.strokeStyle = '#0a0c18';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-}
-
-// ── Sock ─────────────────────────────────────────────────────────────
-// A short tilted "tube" between the trouser cuff and the shoe collar.
-// White base with thin pink and blue ribbed stripes — a nod to the
-// reference photo without being literal.
-
-function drawSock(ctx, W, H) {
-  // Sock outline: trapezoidal strip from trouser cuff to shoe collar.
-  const cuffCx = W * 0.40;
-  const cuffCy = H * 0.62;
-  const cuffHalfW = W * 0.16;
-  const cuffBackX  = cuffCx - cuffHalfW * 1.05;
-  const cuffBackY  = cuffCy + 18;
-  const cuffFrontX = cuffCx + cuffHalfW * 0.95;
-  const cuffFrontY = cuffCy - 8;
-
-  // Top-of-sock corners (where the shoe collar takes over). Slightly
-  // narrower than the trouser cuff and shifted toward the shoe.
-  const topBackX  = W * 0.43;
-  const topBackY  = H * 0.55;
-  const topFrontX = W * 0.62;
-  const topFrontY = H * 0.46;
-
-  // Sock body fill.
-  ctx.beginPath();
-  ctx.moveTo(cuffBackX,  cuffBackY);
-  ctx.lineTo(cuffFrontX, cuffFrontY);
-  ctx.lineTo(topFrontX,  topFrontY);
-  ctx.lineTo(topBackX,   topBackY);
-  ctx.closePath();
-  ctx.fillStyle = '#f3f1ea';
-  ctx.fill();
-
-  // Striped band: 5 thin stripes (pink, white, blue, white, pink) running
-  // perpendicular to the sock's long axis. Each stripe is a quad
-  // interpolated between the cuff edge and the top edge.
-  const stripes = [
-    { t0: 0.20, t1: 0.28, color: '#e69aae' },  // pink
-    { t0: 0.32, t1: 0.40, color: '#7fb6df' },  // blue
-    { t0: 0.44, t1: 0.52, color: '#e69aae' },  // pink
-  ];
-  for (const s of stripes) {
-    const a = lerpPt(cuffBackX,  cuffBackY,  topBackX,  topBackY,  s.t0);
-    const b = lerpPt(cuffFrontX, cuffFrontY, topFrontX, topFrontY, s.t0);
-    const c = lerpPt(cuffFrontX, cuffFrontY, topFrontX, topFrontY, s.t1);
-    const d = lerpPt(cuffBackX,  cuffBackY,  topBackX,  topBackY,  s.t1);
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.lineTo(c.x, c.y);
-    ctx.lineTo(d.x, d.y);
-    ctx.closePath();
-    ctx.fillStyle = s.color;
-    ctx.fill();
-  }
-
-  // Ribbing — many faint dark lines parallel to the long axis. Sells the
-  // "thick athletic sock" texture from the photo.
-  ctx.save();
-  ctx.globalAlpha = 0.18;
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 0.6;
-  const ribCount = 14;
-  for (let i = 1; i < ribCount; i++) {
-    const t = i / ribCount;
-    const a = lerpPt(cuffBackX, cuffBackY, cuffFrontX, cuffFrontY, t);
-    const b = lerpPt(topBackX,  topBackY,  topFrontX,  topFrontY,  t);
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // Top edge — where the sock meets the shoe collar.
-  ctx.beginPath();
-  ctx.moveTo(topBackX,  topBackY);
-  ctx.lineTo(topFrontX, topFrontY);
-  ctx.strokeStyle = '#1a1a1a';
+  ctx.strokeStyle = t.stroke;
   ctx.lineWidth = 1.2;
   ctx.stroke();
+
+  // Two ribbing lines across the band, parallel to the ankle edge.
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  for (const rt of [0.88, 0.93]) {
+    const rL = expand(lerp2(bL, aL, rt),  1);
+    const rR = expand(lerp2(bR, aR, rt), -1);
+    ctx.beginPath();
+    ctx.moveTo(rL.x, rL.y);
+    ctx.lineTo(rR.x, rR.y);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ── Shoe ─────────────────────────────────────────────────────────────
-// Black leather oxford-style silhouette pointing to the upper-right.
-// Drawn in its own rotated frame so the lace pattern + toe cap stay
-// aligned with the foot's long axis regardless of the perspective tilt.
+// Drawn in a rotated local frame (origin = ankle, +x = toward toe) so
+// the outline, laces, and seam all share the same axis regardless of
+// the overall perspective tilt.
 
-function drawShoe(ctx, W, H) {
-  // Anchor: roughly where the ankle sits on top of the shoe (where the
-  // sock disappears into the collar).
-  const ankleX = W * 0.52;
-  const ankleY = H * 0.50;
+function drawShoe(ctx, ankle, toe, t) {
+  const dx = toe.x - ankle.x;
+  const dy = toe.y - ankle.y;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return;
+  const angle = Math.atan2(dy, dx);
 
-  // Foot points toward upper-right of the canvas. The angle is the
-  // axis from ankle to toe in screen-space radians.
-  const footAngle = -Math.PI * 0.18;   // slight upward tilt
-
-  // Length and width of the visible shoe in the chosen frame, scaled to
-  // fit the viewport.
-  const len = Math.min(W, H) * 0.72;
-  const wid = Math.min(W, H) * 0.34;
+  // Shoe proportions in foot-local units. `len` is ankle-to-toe.
+  const heelX   = -len * 0.35;
+  const collarX = -len * 0.12;
+  const toeX    =  len;
+  const halfW   =  len * 0.34;
 
   ctx.save();
-  ctx.translate(ankleX, ankleY);
-  ctx.rotate(footAngle);
+  ctx.translate(ankle.x, ankle.y);
+  ctx.rotate(angle);
 
-  // ── Shoe outline (foot-local coordinates: +x = toward toe) ────────
-  // Asymmetric oval with a flatter back (heel counter), a long forefoot,
-  // and a slightly squared toe.
-  const halfW = wid / 2;
-  const heelX   = -len * 0.30;   // back of the heel
-  const collarX = -len * 0.12;   // where the topline starts
-  const toeX    =  len * 0.70;   // tip of the toe
-
+  // 1. Outline — asymmetric oval with a rounder toe and a flatter heel.
   ctx.beginPath();
-  ctx.moveTo(heelX,         halfW * 0.05);
-  // Outer (lateral) side: heel → midfoot → toe
-  ctx.bezierCurveTo(heelX - 2,   halfW * 0.85,
-                    collarX,     halfW * 1.02,
-                    toeX * 0.45, halfW * 0.95);
-  ctx.bezierCurveTo(toeX * 0.78, halfW * 0.90,
-                    toeX * 0.96, halfW * 0.55,
-                    toeX,        halfW * 0.05);
-  // Toe tip
-  ctx.bezierCurveTo(toeX,         -halfW * 0.05,
-                    toeX,         -halfW * 0.55,
-                    toeX * 0.96,  -halfW * 0.55);
-  // Inner (medial) side: toe → midfoot → heel
-  ctx.bezierCurveTo(toeX * 0.78, -halfW * 0.92,
-                    toeX * 0.45, -halfW * 0.95,
-                    collarX,     -halfW * 1.02);
-  ctx.bezierCurveTo(heelX - 2,   -halfW * 0.85,
-                    heelX,       -halfW * 0.05,
-                    heelX,        halfW * 0.05);
+  ctx.moveTo(heelX, 0);
+  // Lateral (bottom of rotated frame): heel → midfoot → toe.
+  ctx.bezierCurveTo(
+    heelX - 4,    halfW * 0.85,
+    collarX,      halfW * 1.02,
+    toeX * 0.35,  halfW * 0.95,
+  );
+  ctx.bezierCurveTo(
+    toeX * 0.72,  halfW * 0.88,
+    toeX * 0.94,  halfW * 0.50,
+    toeX,         halfW * 0.08,
+  );
+  // Toe cap.
+  ctx.bezierCurveTo(
+    toeX,         -halfW * 0.08,
+    toeX * 0.94, -halfW * 0.50,
+    toeX * 0.72, -halfW * 0.88,
+  );
+  // Medial (top of rotated frame): toe → midfoot → heel.
+  ctx.bezierCurveTo(
+    toeX * 0.35, -halfW * 0.95,
+    collarX,     -halfW * 1.02,
+    heelX - 4,   -halfW * 0.85,
+  );
   ctx.closePath();
 
-  // Leather fill with a soft highlight along the upper edge — sells
-  // "polished black leather" without going photoreal.
-  const grad = ctx.createLinearGradient(0, -halfW, 0, halfW);
-  grad.addColorStop(0,    '#2a2422');
-  grad.addColorStop(0.45, '#0e0c0b');
-  grad.addColorStop(1,    '#1a1614');
-  ctx.fillStyle = grad;
+  ctx.fillStyle = t.fillAlt;
   ctx.fill();
+  ctx.strokeStyle = t.stroke;
+  ctx.lineWidth = 2;
+  ctx.stroke();
 
-  // Outline.
-  ctx.strokeStyle = '#000000';
+  // 2. Collar opening — darker ellipse centered where the sock emerges.
+  const openCx = -len * 0.02;
+  const openRx = halfW * 0.58;
+  const openRy = halfW * 0.82;
+  ctx.beginPath();
+  ctx.ellipse(openCx, 0, openRx, openRy, 0, 0, Math.PI * 2);
+  ctx.fillStyle = t.inside;
+  ctx.fill();
+  ctx.strokeStyle = t.stroke;
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  // ── Collar opening ───────────────────────────────────────────────
-  // Where the sock disappears into the shoe. A dark oval centered on the
-  // ankle in foot-local coords (i.e. near x = collarX).
-  const openCx = -len * 0.04;
-  const openRx = halfW * 0.62;
-  const openRy = halfW * 0.85;
+  // 3. Throat + laces. The throat is a narrow diamond running from the
+  //    front of the collar opening toward the toe; laces zig-zag across
+  //    it between two rows of eyelets.
+  const throatStart = openCx + openRx * 0.95;
+  const throatEnd   = toeX * 0.55;
+  const throatWidAtCollar = halfW * 0.36;
+  const throatWidAtToe    = halfW * 0.14;
+
   ctx.beginPath();
-  ctx.ellipse(openCx, 0, openRx, openRy, 0, 0, Math.PI * 2);
-  ctx.fillStyle = '#0a0807';
+  ctx.moveTo(throatStart,  throatWidAtCollar);
+  ctx.lineTo(throatEnd,    throatWidAtToe);
+  ctx.lineTo(throatEnd,   -throatWidAtToe);
+  ctx.lineTo(throatStart, -throatWidAtCollar);
+  ctx.closePath();
+  ctx.fillStyle = t.fill;
   ctx.fill();
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = t.stroke;
+  ctx.lineWidth = 1.2;
   ctx.stroke();
 
-  // ── Throat & laces ───────────────────────────────────────────────
-  // The throat is a thin diamond running forward from the collar toward
-  // the toe; laces zig-zag across it.
-  const throatStart = openCx + openRx * 0.85;
-  const throatEnd   = toeX * 0.55;
-  const throatWid   = halfW * 0.32;
-
-  // Throat panel (slightly browner leather under the laces).
-  ctx.beginPath();
-  ctx.moveTo(throatStart,  throatWid * 0.75);
-  ctx.lineTo(throatEnd,    throatWid * 0.20);
-  ctx.lineTo(throatEnd,   -throatWid * 0.20);
-  ctx.lineTo(throatStart, -throatWid * 0.75);
-  ctx.closePath();
-  ctx.fillStyle = '#1f1816';
-  ctx.fill();
-
-  // Lace eyelets — three pairs along the throat edges.
+  // Eyelets — three pairs evenly distributed along the throat edges.
   const eyeletCount = 3;
   const eyelets = [];
   for (let i = 0; i < eyeletCount; i++) {
-    const t = (i + 0.5) / eyeletCount;
-    const xt = throatStart + (throatEnd - throatStart) * t;
-    const yTop = -throatWid * (0.75 - 0.55 * t);
-    const yBot =  throatWid * (0.75 - 0.55 * t);
-    eyelets.push({ x: xt, yTop, yBot });
+    const s = (i + 0.5) / eyeletCount;
+    const x = throatStart + (throatEnd - throatStart) * s;
+    const halfAtS = throatWidAtCollar + (throatWidAtToe - throatWidAtCollar) * s;
+    eyelets.push({ x, yTop: -halfAtS * 0.85, yBot: halfAtS * 0.85 });
   }
-  ctx.fillStyle = '#000000';
+  ctx.fillStyle = t.stroke;
   for (const e of eyelets) {
     ctx.beginPath();
     ctx.arc(e.x, e.yTop, 1.6, 0, Math.PI * 2);
@@ -379,9 +263,10 @@ function drawShoe(ctx, W, H) {
     ctx.fill();
   }
 
-  // Lace strings — diagonals between the eyelets, plus straight bars.
-  ctx.strokeStyle = '#1a1a1a';
-  ctx.lineWidth = 1.4;
+  // Lace strings — criss-cross between adjacent eyelets, then a short
+  // straight bar at each pair for the classic lacing look.
+  ctx.strokeStyle = t.stroke;
+  ctx.lineWidth = 1.3;
   for (let i = 0; i < eyeletCount - 1; i++) {
     ctx.beginPath();
     ctx.moveTo(eyelets[i].x,     eyelets[i].yTop);
@@ -392,9 +277,7 @@ function drawShoe(ctx, W, H) {
     ctx.lineTo(eyelets[i + 1].x, eyelets[i + 1].yTop);
     ctx.stroke();
   }
-  // Straight horizontal bars at each eyelet pair, drawn over the X-cross
-  // for the classic "criss-cross with bars" lacing look.
-  ctx.lineWidth = 1.6;
+  ctx.lineWidth = 1.5;
   for (const e of eyelets) {
     ctx.beginPath();
     ctx.moveTo(e.x, e.yTop);
@@ -402,42 +285,27 @@ function drawShoe(ctx, W, H) {
     ctx.stroke();
   }
 
-  // ── Toe cap stitch ───────────────────────────────────────────────
-  // A faint curved line marking the cap at the front of the shoe.
+  // 4. Toe cap seam — a shallow curve marking where the toe box meets
+  //    the vamp. Faint so it reads as stitching, not an outline.
+  ctx.save();
+  ctx.globalAlpha = 0.4;
   ctx.beginPath();
-  ctx.moveTo(toeX * 0.55,  halfW * 0.92);
-  ctx.bezierCurveTo(toeX * 0.55,  halfW * 0.30,
-                    toeX * 0.55, -halfW * 0.30,
-                    toeX * 0.55, -halfW * 0.92);
-  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  ctx.moveTo(toeX * 0.62,  halfW * 0.90);
+  ctx.bezierCurveTo(
+    toeX * 0.56,  halfW * 0.30,
+    toeX * 0.56, -halfW * 0.30,
+    toeX * 0.62, -halfW * 0.90,
+  );
+  ctx.strokeStyle = t.stroke;
   ctx.lineWidth = 1;
   ctx.stroke();
-
-  // Subtle highlight strip along the top of the shoe — sells the curved
-  // leather surface catching light.
-  ctx.beginPath();
-  ctx.moveTo(collarX, -halfW * 0.55);
-  ctx.bezierCurveTo(toeX * 0.40, -halfW * 0.78,
-                    toeX * 0.78, -halfW * 0.55,
-                    toeX * 0.92, -halfW * 0.20);
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-  ctx.lineWidth = 5;
-  ctx.stroke();
+  ctx.restore();
 
   ctx.restore();
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-// Linear interpolation between two screen-space points, returned as
-// {x, y}. Used by the sock striping to place quads along the long axis.
-function lerpPt(ax, ay, bx, by, t) {
-  return { x: ax + (bx - ax) * t, y: ay + (by - ay) * t };
-}
-
-// Cheap deterministic pseudo-random in [0, 1). Stable across redraws so
-// the carpet speckle doesn't shimmer when the canvas resizes.
-function pseudoRand(n) {
-  const x = Math.sin(n * 12.9898) * 43758.5453;
-  return x - Math.floor(x);
+function lerp2(a, b, t) {
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
