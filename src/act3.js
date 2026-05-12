@@ -1,476 +1,20 @@
-// Act 3 — 3D scene per act3-3d-spec.md.
+// Act 3 — 3D scene per act3-3d-spec.md, step-1 scaffold only.
 //
 // Self-contained Three.js renderer mounted on #canvas3. Acts 1, 2, 4, 5, 6
 // remain 2D Canvas; only Act 3 uses Three.js. The render loop is paused
 // when the viewport is off-screen so the page stays responsive while
 // scrolling through the rest of the article (spec §10).
 //
-// Build ladder from spec §8 — implemented incrementally. Currently
-// completes step 2 (static parametric shoe). Subsequent steps wire the
-// sliders, add the leg, animate the gait phase, spawn stones, and wire
-// collar-gap collision.
-//
-// Coordinate convention:
-//   +X = forward (toe direction), heel at −X
-//   +Y = up
-//   +Z = lateral side of the (right) foot
-//   Origin = ankle base (on top of the sole, at the heel-to-arch hinge)
-// All distances in centimeters, matching the spec's §12 reference table.
+// This is the bare structure: empty scene, a single rotating test cube
+// for visual confirmation that the renderer is alive, OrbitControls
+// constrained per spec §5. No shoe, no leg, no stones yet — those land
+// in subsequent steps once the structure here is verified.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GAIT, sampleAt } from 'gait';
 
-// ── Spec §3 collar parameterization ─────────────────────────────────────
-// Angle θ around the foot, with θ=0 at the HEEL (back) and θ=π at the TOE
-// (front). cos(θ)=+1 at the back, sin(θ)=±1 on the sides — matching the
-// spec's reference function exactly. (The spec text says "0° forward over
-// toe" but its sample code labels cos(angle) as "+1 at back"; we go with
-// the code, which is the unambiguous artifact.)
-function collarHeightAt(angle, collarHeight, heelNotchWidth) {
-  const back = Math.cos(angle);
-  const side = Math.abs(Math.sin(angle));
-
-  let h = collarHeight * (0.3 + 0.7 * side);
-  if (back > 0) {
-    h -= back * heelNotchWidth * collarHeight * 0.6;
-  }
-  return Math.max(h, 0.5);
-}
-
-// Sole footprint outline at angle θ. Tapered ellipse — wider at the
-// midfoot (ball of the foot) than the heel. Returns { x, z } on the rim.
-// θ=0 → heel (-X), θ=π → toe (+X).
-function footprintAt(angle, footLength, footWidth) {
-  // Heel at X = HEEL_BACK, toe at X = HEEL_BACK + footLength.
-  // Origin (ankle) is positioned so the heel sits ~5cm behind it.
-  const HEEL_BACK = -5;
-  const ellCx = HEEL_BACK + footLength / 2;
-  const hl = footLength / 2;
-  const hw = footWidth / 2;
-  const x = ellCx - hl * Math.cos(angle);
-
-  // Width modulation: narrower at heel and tip, fuller across the midfoot.
-  // sin(angle) ranges -1..1; |sin| peaks at the sides. Multiplying by a
-  // mild (1 + 0.15·sin(angle)) tapers the ball of the foot slightly wider
-  // than the heel — recognizable shoe silhouette without being asymmetric
-  // enough to break left/right symmetry.
-  const taper = 1 + 0.15 * Math.sin(angle);
-  const z = hw * taper * Math.sin(angle);
-  return { x, z };
-}
-
-// ── Spec §3 collar-gap breathing table ──────────────────────────────────
-// 11 samples across one gait cycle, peaking around toe-off / mid-swing
-// when the foot flexes most relative to the leg. Values 0..1, scaled to
-// MAX_GAP cm at peak. Pedagogically exaggerated — see spec §3 final note.
-const GAP_OPENING = [0.2, 0.1, 0.1, 0.2, 0.4, 0.7, 0.9, 0.8, 0.6, 0.4, 0.2];
-const MAX_GAP = 1.2;
-
-function gapOpeningAt(phase) {
-  return sampleAt(GAP_OPENING, phase);
-}
-
-// ── Shoe: sole (built once) + upper (rebuilt per frame) ────────────────
-// Per spec §7 the geometry is cheap to regenerate, but the sole truly
-// doesn't change with sliders OR phase, so we build it once. The upper
-// (quarter + collar curve) IS function of (collarHeight, heelNotchWidth,
-// phase) and rebuilds each frame to animate the collar gap.
-function buildSole(params) {
-  const {
-    footLength = 25,
-    footWidth = 9,
-    soleThickness = 1.5,
-    perimeterSamples = 32,
-    bodyMaterial,
-    outlineMaterial,
-  } = params;
-
-  // ExtrudeGeometry from the footprint shape. Build the shape in XY
-  // (Three.js Shape's native plane), then rotate so the footprint lies
-  // in the world XZ plane with thickness along +Y.
-  const shape = new THREE.Shape();
-  for (let i = 0; i <= perimeterSamples; i++) {
-    const θ = (i / perimeterSamples) * Math.PI * 2;
-    const { x, z } = footprintAt(θ, footLength, footWidth);
-    if (i === 0) shape.moveTo(x, z); else shape.lineTo(x, z);
-  }
-  const soleGeom = new THREE.ExtrudeGeometry(shape, {
-    depth: soleThickness,
-    bevelEnabled: false,
-  });
-  soleGeom.rotateX(-Math.PI / 2);
-  soleGeom.translate(0, soleThickness, 0);
-
-  const group = new THREE.Group();
-  group.name = 'sole';
-  group.add(new THREE.Mesh(soleGeom, bodyMaterial));
-  group.add(makeOutline(soleGeom, outlineMaterial));
-  return group;
-}
-
-function buildUpper(params) {
-  const {
-    footLength = 25,
-    footWidth = 9,
-    soleThickness = 1.5,
-    collarHeight,
-    heelNotchWidth,
-    phase = 0,
-    perimeterSamples = 32,
-    bodyMaterial,
-    outlineMaterial,
-  } = params;
-
-  const gap = gapOpeningAt(phase) * MAX_GAP;
-
-  const rimPts = [];
-  const collarPts = [];
-  for (let i = 0; i < perimeterSamples; i++) {
-    const θ = (i / perimeterSamples) * Math.PI * 2;
-    const { x, z } = footprintAt(θ, footLength, footWidth);
-    const h = collarHeightAt(θ, collarHeight, heelNotchWidth);
-    rimPts.push(new THREE.Vector3(x, soleThickness, z));
-
-    // Collar vertices push outward in XZ from the ankle's central axis
-    // (X=0, Z=0) by `gap` cm — spec §3's "collar visibly breathes".
-    // Effect is large at the back (heel) where the collar is close to
-    // the ankle, naturally smaller at the toe where (x,z) is far from
-    // origin. Skipping points right at the axis (r≈0) avoids div-by-zero.
-    let cx = x, cz = z;
-    const r = Math.hypot(x, z);
-    if (r > 1e-3 && gap > 0) {
-      const k = (r + gap) / r;
-      cx = x * k;
-      cz = z * k;
-    }
-    collarPts.push(new THREE.Vector3(cx, soleThickness + h, cz));
-  }
-
-  const upperGeom = buildStripGeometry(rimPts, collarPts);
-
-  const group = new THREE.Group();
-  group.name = 'upper';
-  group.add(new THREE.Mesh(upperGeom, bodyMaterial));
-  group.add(makeOutline(upperGeom, outlineMaterial));
-
-  // Expose the live collar curve so step 7's collision detection can
-  // query the current topline edge in world space.
-  group.userData.collarCurve = collarPts;
-  return group;
-}
-
-// Dispose every BufferGeometry under a Group, then clear children. The
-// inverted-hull outline geometries are cloned per-build, so they need
-// disposing too.
-function disposeGroup(group) {
-  group.traverse((o) => o.geometry && o.geometry.dispose());
-}
-
-// Standard 2D point-in-polygon (ray cast +X). Polygon is `pts`, treated
-// as a closed loop in the XZ plane (only .x and .z are read).
-function pointInCollarXZ(x, z, pts) {
-  let inside = false;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const xi = pts[i].x, zi = pts[i].z;
-    const xj = pts[j].x, zj = pts[j].z;
-    const intersect = ((zi > z) !== (zj > z)) &&
-                      (x < (xj - xi) * (z - zi) / (zj - zi) + xi);
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-
-// Y above which a stone is too high to be considered for collar entry.
-// Slightly above the spec's max-collarHeight (10cm) + the breathing gap
-// max so the test triggers the moment a stone passes the rim, regardless
-// of where it is in the breathing cycle.
-const COLLAR_RIM_Y_CEILING = 13;
-
-// ── 3D stone system (spec §6) ───────────────────────────────────────────
-// Stones are independent of the 2D StoneSystem used in Acts 1/2/6 — Act 3
-// is its own world. Each stone is a low-subdivision Icosahedron flying
-// ballistically until it lands on the ground or (step 7) crosses the
-// collar curve and falls inside the shoe.
-class Stone3DSystem {
-  constructor(scene, material) {
-    this.scene = scene;
-    this.material = material;
-    this.stones = [];
-    this.trappedCount = 0;
-    this.gravity = 980; // cm/s² (close to real g; world units are cm)
-    this.maxStones = 80;
-  }
-
-  spawnBurst(count = 4) {
-    // Spawn around the foot at ground level, mostly from the lateral
-    // and front sectors (matching the kick-up direction in Act 2).
-    for (let i = 0; i < count; i++) {
-      if (this.stones.length >= this.maxStones) break;
-
-      const r = 0.3 + Math.random() * 0.3; // spec §12: 0.3..0.6 cm
-      const geom = new THREE.IcosahedronGeometry(r, 0);
-      const mesh = new THREE.Mesh(geom, this.material);
-
-      // Spawn azimuth: bias toward the front-lateral arc (where toe-off
-      // would launch them). 0° = +X (toe), 90° = +Z (lateral).
-      const azim = (Math.random() - 0.2) * Math.PI;
-      const dist = 18 + Math.random() * 12;
-      const x = dist * Math.cos(azim);
-      const z = dist * Math.sin(azim);
-      mesh.position.set(x, r, z);
-
-      // Aim a parabolic arc toward the collar opening: target the ankle
-      // height (~6cm) at (0, ~6, 0), slightly randomized so stones don't
-      // all converge to the same point.
-      const targetX = (Math.random() - 0.5) * 2;
-      const targetZ = (Math.random() - 0.5) * 2;
-      const dx = targetX - x;
-      const dz = targetZ - z;
-      const horizDist = Math.hypot(dx, dz);
-      const horizSpeed = 35 + Math.random() * 20;
-      const vy = 70 + Math.random() * 30;
-      const vel = new THREE.Vector3(
-        (dx / horizDist) * horizSpeed,
-        vy,
-        (dz / horizDist) * horizSpeed,
-      );
-
-      this.scene.add(mesh);
-      this.stones.push({
-        mesh,
-        vel,
-        radius: r,
-        state: 'flying',
-        age: 0,
-        spin: new THREE.Vector3(
-          Math.random() - 0.5,
-          Math.random() - 0.5,
-          Math.random() - 0.5,
-        ).multiplyScalar(8),
-      });
-    }
-  }
-
-  update(dt, collarCurve) {
-    const g = this.gravity;
-    for (let i = this.stones.length - 1; i >= 0; i--) {
-      const s = this.stones[i];
-      s.age += dt;
-
-      if (s.state === 'flying' || s.state === 'entered') {
-        s.mesh.position.x += s.vel.x * dt;
-        s.mesh.position.y += s.vel.y * dt;
-        s.mesh.position.z += s.vel.z * dt;
-        s.vel.y -= g * dt;
-
-        // Spin in flight for visual interest; pebbles tumble.
-        s.mesh.rotation.x += s.spin.x * dt;
-        s.mesh.rotation.y += s.spin.y * dt;
-        s.mesh.rotation.z += s.spin.z * dt;
-      }
-
-      // ── Collar-gap entry (spec §6) ────────────────────────────────
-      // Test on every flying, falling stone. The collar curve is sampled
-      // in XZ; a standard ray-cast point-in-polygon is enough — the
-      // collar is convex enough not to fool it.
-      if (s.state === 'flying' && s.vel.y < 0 && collarCurve) {
-        // Cheap prefilter: skip stones still well above the collar.
-        if (s.mesh.position.y < COLLAR_RIM_Y_CEILING &&
-            pointInCollarXZ(s.mesh.position.x, s.mesh.position.z, collarCurve)) {
-          s.state = 'entered';
-          this.trappedCount++;
-          s.fadeAge = 0;
-        }
-      }
-
-      // 'entered' stones fade out over ~0.4 s — they have visibly fallen
-      // through the collar; the shoe interior isn't modeled, so we don't
-      // try to render them piling up inside.
-      if (s.state === 'entered') {
-        s.fadeAge += dt;
-        const k = Math.max(0, 1 - s.fadeAge / 0.4);
-        s.mesh.scale.setScalar(k);
-        if (s.fadeAge >= 0.4) {
-          this.remove(i);
-          continue;
-        }
-      } else if (s.state === 'flying') {
-        // Hit the ground (Y=0). If falling, settle.
-        if (s.mesh.position.y - s.radius <= 0 && s.vel.y < 0) {
-          s.state = 'settled';
-          s.mesh.position.y = s.radius;
-          s.vel.set(0, 0, 0);
-          s.spin.set(0, 0, 0);
-        }
-      }
-
-      // Cull old stones to keep the scene tidy. Settled stones live a
-      // bit longer so the user can see them piling around the foot.
-      const ttl = s.state === 'settled' ? 4 : 6;
-      if (s.age > ttl) {
-        this.remove(i);
-      }
-    }
-  }
-
-  remove(i) {
-    const s = this.stones[i];
-    this.scene.remove(s.mesh);
-    s.mesh.geometry.dispose();
-    this.stones.splice(i, 1);
-  }
-
-  reset() {
-    while (this.stones.length) this.remove(this.stones.length - 1);
-    this.trappedCount = 0;
-  }
-}
-
-// Build a closed-strip BufferGeometry between two equal-length rings of
-// points (bottom and top). DoubleSide — there's no inside surface to
-// worry about for v1, and toon shading reads fine on either face.
-function buildStripGeometry(bottomPts, topPts) {
-  const n = bottomPts.length;
-  const positions = new Float32Array(n * 2 * 3);
-  const indices = [];
-
-  for (let i = 0; i < n; i++) {
-    positions[i * 6 + 0] = bottomPts[i].x;
-    positions[i * 6 + 1] = bottomPts[i].y;
-    positions[i * 6 + 2] = bottomPts[i].z;
-    positions[i * 6 + 3] = topPts[i].x;
-    positions[i * 6 + 4] = topPts[i].y;
-    positions[i * 6 + 5] = topPts[i].z;
-  }
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n;
-    const a = i * 2;       // bottom_i
-    const b = i * 2 + 1;   // top_i
-    const c = j * 2;       // bottom_j
-    const d = j * 2 + 1;   // top_j
-    indices.push(a, c, d);
-    indices.push(a, d, b);
-  }
-
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  g.setIndex(indices);
-  g.computeVertexNormals();
-  return g;
-}
-
-// ── Leg builder + poser (spec §4) ───────────────────────────────────────
-// Two cylinders + an implicit ankle joint, posed in the sagittal plane
-// (Z=0). The gait curves from gait.js are reused verbatim — the spec
-// is explicit about not re-deriving them.
-//
-// Convention: thigh/shank are unit cylinders authored along +Y. We pin
-// the ankle in the shoe (`ankleAt`) and solve UPWARD: knee = ankle +
-// (-shankDir)·shankLen, hip = knee + (-thighDir)·thighLen. This is the
-// inverse of leg.js's solveLeg(): in Acts 1/2 the foot moves while the
-// hip is the spine anchor; in Act 3 the foot is planted inside the shoe
-// while the hip swings around it.
-function buildLeg(params) {
-  const {
-    thighLen = 35,
-    shankLen = 40,
-    legRadius = 4,
-    bodyMaterial,
-    outlineMaterial,
-  } = params;
-
-  const group = new THREE.Group();
-  group.name = 'leg';
-
-  // Slight taper on the shank (thicker at knee, narrower at ankle); the
-  // thigh is uniform for v1 — spec §9 calls thigh taper a nice-to-have.
-  const thighGeom = new THREE.CylinderGeometry(legRadius, legRadius, thighLen, 16);
-  const shankGeom = new THREE.CylinderGeometry(legRadius, legRadius * 0.7, shankLen, 16);
-
-  const thigh = new THREE.Mesh(thighGeom, bodyMaterial);
-  thigh.name = 'thigh';
-  const shank = new THREE.Mesh(shankGeom, bodyMaterial);
-  shank.name = 'shank';
-  const thighOutline = makeOutline(thighGeom, outlineMaterial);
-  const shankOutline = makeOutline(shankGeom, outlineMaterial);
-
-  group.add(thigh, shank, thighOutline, shankOutline);
-
-  return { group, thigh, shank, thighOutline, shankOutline, thighLen, shankLen };
-}
-
-// Pose the leg cylinders for a given gait phase, with the ankle pinned
-// at `ankleAt` (a THREE.Vector3 in scene space).
-function poseLeg(leg, phase, ankleAt) {
-  const hipRad  = sampleAt(GAIT.hip,  phase) * Math.PI / 180;
-  const kneeRad = sampleAt(GAIT.knee, phase) * Math.PI / 180;
-
-  // In the sagittal plane (XY): a thigh at hipAngle=0 hangs straight down
-  // (-Y), forward flex (+hipRad) tilts it toward +X. The shank's world
-  // angle is thighAngle - kneeRad (knee folds the shank backward).
-  const shankAngle = hipRad - kneeRad;
-
-  // Shank direction is "downward" (ankle-from-knee). To go knee-from-ankle
-  // we negate.
-  const shankUp = new THREE.Vector3(-Math.sin(shankAngle),  Math.cos(shankAngle), 0);
-  const thighUp = new THREE.Vector3(-Math.sin(hipRad),      Math.cos(hipRad),     0);
-
-  const ankle = ankleAt.clone();
-  const knee  = ankle.clone().add(shankUp.clone().multiplyScalar(leg.shankLen));
-  const hip   = knee.clone().add(thighUp.clone().multiplyScalar(leg.thighLen));
-
-  alignCylinder(leg.shank,        ankle, knee);
-  alignCylinder(leg.shankOutline, ankle, knee);
-  alignCylinder(leg.thigh,        knee,  hip);
-  alignCylinder(leg.thighOutline, knee,  hip);
-}
-
-// Position+orient a unit-Y CylinderGeometry mesh so its bottom face lands
-// at p1 and top face at p2.
-const _Y_AXIS = new THREE.Vector3(0, 1, 0);
-function alignCylinder(mesh, p1, p2) {
-  const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
-  mesh.position.copy(mid);
-  const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
-  mesh.quaternion.setFromUnitVectors(_Y_AXIS, dir);
-}
-
-// Inverted-hull outline (spec §5). Renders the back faces of a slightly
-// inflated copy in solid black; together with the toon-shaded front
-// faces this reads as a line-art outline — same look as the 2D acts.
-function makeOutline(geometry, outlineMaterial) {
-  const outlineGeom = geometry.clone();
-  // Inflate vertices along their normals. computeVertexNormals() was
-  // already called in buildStripGeometry / by ExtrudeGeometry; for the
-  // sole we rely on ExtrudeGeometry's own normals.
-  if (!outlineGeom.attributes.normal) outlineGeom.computeVertexNormals();
-  const pos = outlineGeom.attributes.position;
-  const nor = outlineGeom.attributes.normal;
-  const inflate = 0.18; // cm
-  for (let i = 0; i < pos.count; i++) {
-    pos.setXYZ(
-      i,
-      pos.getX(i) + nor.getX(i) * inflate,
-      pos.getY(i) + nor.getY(i) * inflate,
-      pos.getZ(i) + nor.getZ(i) * inflate,
-    );
-  }
-  pos.needsUpdate = true;
-  return new THREE.Mesh(outlineGeom, outlineMaterial);
-}
-
-// ────────────────────────────────────────────────────────────────────────
-// View factory
-// ────────────────────────────────────────────────────────────────────────
 export function createAct3View(opts) {
-  const {
-    canvasEl,
-    viewportEl,
-    collarHeightSlider = null,
-    heelNotchSlider = null,
-    stoneCountEl = null,
-  } = opts;
+  const { canvasEl, viewportEl } = opts;
   if (!canvasEl || !viewportEl) return;
 
   const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true });
@@ -478,11 +22,11 @@ export function createAct3View(opts) {
 
   const scene = new THREE.Scene();
 
-  // 3/4 view from outside-front of the foot, looking back toward the
-  // ankle. Spec §12 starting values; tuned to frame the shoe nicely.
+  // 3/4 view of the scene origin. Distance chosen so a ~25cm shoe at
+  // origin would frame nicely later; for the cube it just looks fine.
   const camera = new THREE.PerspectiveCamera(35, 1, 1, 500);
   camera.position.set(45, 38, 50);
-  const lookTarget = new THREE.Vector3(6, 6, 0);
+  const lookTarget = new THREE.Vector3(0, 5, 0);
   camera.lookAt(lookTarget);
 
   // Single directional light + soft ambient (spec §5: no shadows).
@@ -491,25 +35,10 @@ export function createAct3View(opts) {
   keyLight.position.set(40, 80, 40);
   scene.add(keyLight);
 
-  // Theme-aware background. Materials are theme-aware too — the toon
-  // shoe is white in light mode, very light grey in dark mode so the
-  // outlines still read against the dark page background.
+  // Theme-aware background so the canvas blends with the page.
   const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
-  const bodyMaterial = new THREE.MeshToonMaterial({
-    color: 0xffffff,
-    side: THREE.DoubleSide,
-  });
-  const outlineMaterial = new THREE.MeshBasicMaterial({
-    color: 0x1a1a1a,
-    side: THREE.BackSide,
-  });
-  // Coral accent — same #D85A30 used for stones in every other act.
-  const stoneMaterial = new THREE.MeshToonMaterial({ color: 0xD85A30 });
   function applyTheme() {
-    const dark = darkQuery.matches;
-    scene.background = new THREE.Color(dark ? 0x111111 : 0xffffff);
-    bodyMaterial.color.setHex(dark ? 0xdddddd : 0xffffff);
-    outlineMaterial.color.setHex(dark ? 0xe4e4e4 : 0x1a1a1a);
+    scene.background = new THREE.Color(darkQuery.matches ? 0x111111 : 0xffffff);
   }
   applyTheme();
   darkQuery.addEventListener('change', applyTheme);
@@ -525,87 +54,15 @@ export function createAct3View(opts) {
   controls.target.copy(lookTarget);
   controls.update();
 
-  // ── Shoe (sole + animated upper) ────────────────────────────────────
-  // Sole is built once — fixed footprint, independent of sliders/phase.
-  // Upper rebuilds every frame: collar height responds to the two
-  // sliders, and the collar curve breathes outward via gapOpeningAt(phase).
-  // Slider mapping (range inputs default to 1..10 in index.html):
-  //   collarHeight slider value → collar height in cm (1cm…10cm)
-  //   heelNotch slider value    → heelNotchWidth (0..1, slider/10)
-  function readSliderParams() {
-    const ch = collarHeightSlider ? parseFloat(collarHeightSlider.value) : 6;
-    const hn = heelNotchSlider ? parseFloat(heelNotchSlider.value) / 10 : 0.4;
-    return { collarHeight: ch, heelNotchWidth: hn };
-  }
-
-  scene.add(buildSole({ bodyMaterial, outlineMaterial }));
-
-  let upperGroup = null;
-  function rebuildUpper(phase) {
-    if (upperGroup) {
-      scene.remove(upperGroup);
-      disposeGroup(upperGroup);
-    }
-    const { collarHeight, heelNotchWidth } = readSliderParams();
-    upperGroup = buildUpper({
-      collarHeight,
-      heelNotchWidth,
-      phase,
-      bodyMaterial,
-      outlineMaterial,
-    });
-    scene.add(upperGroup);
-  }
-
-  // ── Leg (animated through the gait cycle in place) ──────────────────
-  const ankleAt = new THREE.Vector3(0, 6.5, 0);
-  const leg = buildLeg({ bodyMaterial, outlineMaterial });
-  scene.add(leg.group);
-
-  // Phase is shared between leg pose and collar gap. Cadence chosen
-  // slower than a real walk (0.5 Hz = 2s per full cycle) so the user
-  // can see the gap breathing clearly. This is pedagogical pacing, not
-  // realistic — Act 1/2 already showed real walking speed.
-  let currentPhase = 0;
-  const PHASE_HZ = 0.5;
-
-  // Initial pose so the first paint is consistent.
-  rebuildUpper(currentPhase);
-  poseLeg(leg, currentPhase, ankleAt);
-
-  // Slider input restarts the upper rebuild immediately — no need to
-  // wait for the next animation tick.
-  function onSliderInput() { rebuildUpper(currentPhase); }
-  if (collarHeightSlider) collarHeightSlider.addEventListener('input', onSliderInput);
-  if (heelNotchSlider)    heelNotchSlider.addEventListener('input', onSliderInput);
-
-  // ── Stones (scroll-triggered, spec §6) ──────────────────────────────
-  // Spawn 3..5 stones per scroll "tick" while Act 3 is in view; throttle
-  // so a single fast trackpad scroll doesn't fire dozens of bursts. We
-  // listen to `wheel` rather than the scroll event itself because wheel
-  // fires even when the page is already at its scroll boundaries — the
-  // user can keep nudging stones up while reading the section.
-  const stones = new Stone3DSystem(scene, stoneMaterial);
-  let actInView = false;
-  let lastSpawn = 0;
-  const SPAWN_THROTTLE_MS = 220;
-
-  function tryScrollSpawn() {
-    if (!actInView) return;
-    const now = performance.now();
-    if (now - lastSpawn < SPAWN_THROTTLE_MS) return;
-    lastSpawn = now;
-    stones.spawnBurst(3 + Math.floor(Math.random() * 3));
-  }
-  window.addEventListener('wheel',     tryScrollSpawn, { passive: true });
-  window.addEventListener('touchmove', tryScrollSpawn, { passive: true });
-  window.addEventListener('keydown', (e) => {
-    // Arrow keys / space / page up/down also count as "scroll input"
-    // so keyboard users get the same interaction.
-    if (['ArrowDown','ArrowUp','PageDown','PageUp',' '].includes(e.key)) {
-      tryScrollSpawn();
-    }
-  });
+  // ── Placeholder: a single test cube to confirm the renderer is alive.
+  // Slowly rotates so it's obvious the render loop is running. Replaced
+  // in step 2 with the parametric shoe.
+  const testCube = new THREE.Mesh(
+    new THREE.BoxGeometry(10, 10, 10),
+    new THREE.MeshToonMaterial({ color: 0xffffff }),
+  );
+  testCube.position.copy(lookTarget);
+  scene.add(testCube);
 
   // ── Resize handling ──────────────────────────────────────────────────
   function resize() {
@@ -625,33 +82,16 @@ export function createAct3View(opts) {
   // ── Render loop, paused when off-screen (spec §10) ───────────────────
   let running = false;
   let rafId = null;
-  let lastTime = null;
-  let lastShownTrappedCount = -1;
 
-  function frame(now) {
+  function frame() {
     rafId = requestAnimationFrame(frame);
     controls.update();
-
-    const dt = lastTime === null ? 0 : Math.min((now - lastTime) / 1000, 1 / 30);
-    lastTime = now;
-
-    currentPhase = (currentPhase + dt * PHASE_HZ) % 1;
-
-    rebuildUpper(currentPhase);
-    poseLeg(leg, currentPhase, ankleAt);
-    stones.update(dt, upperGroup ? upperGroup.userData.collarCurve : null);
-
-    if (stoneCountEl && stones.trappedCount !== lastShownTrappedCount) {
-      stoneCountEl.textContent = String(stones.trappedCount);
-      lastShownTrappedCount = stones.trappedCount;
-    }
-
+    testCube.rotation.y += 0.01;
     renderer.render(scene, camera);
   }
   function start() {
     if (running) return;
     running = true;
-    lastTime = null; // skip the first dt after a pause
     rafId = requestAnimationFrame(frame);
   }
   function stop() {
@@ -659,28 +99,16 @@ export function createAct3View(opts) {
     running = false;
     if (rafId !== null) cancelAnimationFrame(rafId);
     rafId = null;
-    lastTime = null;
   }
+
   if (typeof IntersectionObserver !== 'undefined') {
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {
-        actInView = e.isIntersecting;
-        if (e.isIntersecting) {
-          start();
-        } else {
-          stop();
-          // Drop in-flight stones when leaving the act so the user
-          // doesn't return later to a frozen mid-air pile. Counter
-          // resets too — re-entering should feel like a clean slate.
-          stones.reset();
-          if (stoneCountEl) stoneCountEl.textContent = '0';
-          lastShownTrappedCount = -1;
-        }
+        if (e.isIntersecting) start(); else stop();
       }
     }, { threshold: 0.05 });
     io.observe(viewportEl);
   } else {
-    actInView = true;
     start();
   }
 
