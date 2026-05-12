@@ -167,6 +167,119 @@ function disposeGroup(group) {
   group.traverse((o) => o.geometry && o.geometry.dispose());
 }
 
+// ── 3D stone system (spec §6) ───────────────────────────────────────────
+// Stones are independent of the 2D StoneSystem used in Acts 1/2/6 — Act 3
+// is its own world. Each stone is a low-subdivision Icosahedron flying
+// ballistically until it lands on the ground or (step 7) crosses the
+// collar curve and falls inside the shoe.
+class Stone3DSystem {
+  constructor(scene, material) {
+    this.scene = scene;
+    this.material = material;
+    this.stones = [];
+    this.trappedCount = 0;
+    this.gravity = 980; // cm/s² (close to real g; world units are cm)
+    this.maxStones = 80;
+  }
+
+  spawnBurst(count = 4) {
+    // Spawn around the foot at ground level, mostly from the lateral
+    // and front sectors (matching the kick-up direction in Act 2).
+    for (let i = 0; i < count; i++) {
+      if (this.stones.length >= this.maxStones) break;
+
+      const r = 0.3 + Math.random() * 0.3; // spec §12: 0.3..0.6 cm
+      const geom = new THREE.IcosahedronGeometry(r, 0);
+      const mesh = new THREE.Mesh(geom, this.material);
+
+      // Spawn azimuth: bias toward the front-lateral arc (where toe-off
+      // would launch them). 0° = +X (toe), 90° = +Z (lateral).
+      const azim = (Math.random() - 0.2) * Math.PI;
+      const dist = 18 + Math.random() * 12;
+      const x = dist * Math.cos(azim);
+      const z = dist * Math.sin(azim);
+      mesh.position.set(x, r, z);
+
+      // Aim a parabolic arc toward the collar opening: target the ankle
+      // height (~6cm) at (0, ~6, 0), slightly randomized so stones don't
+      // all converge to the same point.
+      const targetX = (Math.random() - 0.5) * 2;
+      const targetZ = (Math.random() - 0.5) * 2;
+      const dx = targetX - x;
+      const dz = targetZ - z;
+      const horizDist = Math.hypot(dx, dz);
+      const horizSpeed = 35 + Math.random() * 20;
+      const vy = 70 + Math.random() * 30;
+      const vel = new THREE.Vector3(
+        (dx / horizDist) * horizSpeed,
+        vy,
+        (dz / horizDist) * horizSpeed,
+      );
+
+      this.scene.add(mesh);
+      this.stones.push({
+        mesh,
+        vel,
+        radius: r,
+        state: 'flying',
+        age: 0,
+        spin: new THREE.Vector3(
+          Math.random() - 0.5,
+          Math.random() - 0.5,
+          Math.random() - 0.5,
+        ).multiplyScalar(8),
+      });
+    }
+  }
+
+  update(dt) {
+    const g = this.gravity;
+    for (let i = this.stones.length - 1; i >= 0; i--) {
+      const s = this.stones[i];
+      s.age += dt;
+
+      if (s.state === 'flying') {
+        s.mesh.position.x += s.vel.x * dt;
+        s.mesh.position.y += s.vel.y * dt;
+        s.mesh.position.z += s.vel.z * dt;
+        s.vel.y -= g * dt;
+
+        // Spin in flight for visual interest; pebbles tumble.
+        s.mesh.rotation.x += s.spin.x * dt;
+        s.mesh.rotation.y += s.spin.y * dt;
+        s.mesh.rotation.z += s.spin.z * dt;
+
+        // Hit the ground (Y=0). If falling, settle.
+        if (s.mesh.position.y - s.radius <= 0 && s.vel.y < 0) {
+          s.state = 'settled';
+          s.mesh.position.y = s.radius;
+          s.vel.set(0, 0, 0);
+          s.spin.set(0, 0, 0);
+        }
+      }
+
+      // Cull old stones to keep the scene tidy. Settled stones live a
+      // bit longer so the user can see them piling around the foot.
+      const ttl = s.state === 'settled' ? 4 : 6;
+      if (s.age > ttl) {
+        this.remove(i);
+      }
+    }
+  }
+
+  remove(i) {
+    const s = this.stones[i];
+    this.scene.remove(s.mesh);
+    s.mesh.geometry.dispose();
+    this.stones.splice(i, 1);
+  }
+
+  reset() {
+    while (this.stones.length) this.remove(this.stones.length - 1);
+    this.trappedCount = 0;
+  }
+}
+
 // Build a closed-strip BufferGeometry between two equal-length rings of
 // points (bottom and top). DoubleSide — there's no inside surface to
 // worry about for v1, and toon shading reads fine on either face.
@@ -342,6 +455,8 @@ export function createAct3View(opts) {
     color: 0x1a1a1a,
     side: THREE.BackSide,
   });
+  // Coral accent — same #D85A30 used for stones in every other act.
+  const stoneMaterial = new THREE.MeshToonMaterial({ color: 0xD85A30 });
   function applyTheme() {
     const dark = darkQuery.matches;
     scene.background = new THREE.Color(dark ? 0x111111 : 0xffffff);
@@ -416,6 +531,34 @@ export function createAct3View(opts) {
   if (collarHeightSlider) collarHeightSlider.addEventListener('input', onSliderInput);
   if (heelNotchSlider)    heelNotchSlider.addEventListener('input', onSliderInput);
 
+  // ── Stones (scroll-triggered, spec §6) ──────────────────────────────
+  // Spawn 3..5 stones per scroll "tick" while Act 3 is in view; throttle
+  // so a single fast trackpad scroll doesn't fire dozens of bursts. We
+  // listen to `wheel` rather than the scroll event itself because wheel
+  // fires even when the page is already at its scroll boundaries — the
+  // user can keep nudging stones up while reading the section.
+  const stones = new Stone3DSystem(scene, stoneMaterial);
+  let actInView = false;
+  let lastSpawn = 0;
+  const SPAWN_THROTTLE_MS = 220;
+
+  function tryScrollSpawn() {
+    if (!actInView) return;
+    const now = performance.now();
+    if (now - lastSpawn < SPAWN_THROTTLE_MS) return;
+    lastSpawn = now;
+    stones.spawnBurst(3 + Math.floor(Math.random() * 3));
+  }
+  window.addEventListener('wheel',     tryScrollSpawn, { passive: true });
+  window.addEventListener('touchmove', tryScrollSpawn, { passive: true });
+  window.addEventListener('keydown', (e) => {
+    // Arrow keys / space / page up/down also count as "scroll input"
+    // so keyboard users get the same interaction.
+    if (['ArrowDown','ArrowUp','PageDown','PageUp',' '].includes(e.key)) {
+      tryScrollSpawn();
+    }
+  });
+
   // ── Resize handling ──────────────────────────────────────────────────
   function resize() {
     const rect = viewportEl.getBoundingClientRect();
@@ -440,14 +583,14 @@ export function createAct3View(opts) {
     rafId = requestAnimationFrame(frame);
     controls.update();
 
-    if (lastTime !== null) {
-      const dt = Math.min((now - lastTime) / 1000, 1 / 30);
-      currentPhase = (currentPhase + dt * PHASE_HZ) % 1;
-    }
+    const dt = lastTime === null ? 0 : Math.min((now - lastTime) / 1000, 1 / 30);
     lastTime = now;
+
+    currentPhase = (currentPhase + dt * PHASE_HZ) % 1;
 
     rebuildUpper(currentPhase);
     poseLeg(leg, currentPhase, ankleAt);
+    stones.update(dt);
 
     renderer.render(scene, camera);
   }
@@ -467,11 +610,20 @@ export function createAct3View(opts) {
   if (typeof IntersectionObserver !== 'undefined') {
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {
-        if (e.isIntersecting) start(); else stop();
+        actInView = e.isIntersecting;
+        if (e.isIntersecting) {
+          start();
+        } else {
+          stop();
+          // Drop in-flight stones when leaving the act so the user
+          // doesn't return later to a frozen mid-air pile.
+          stones.reset();
+        }
       }
     }, { threshold: 0.05 });
     io.observe(viewportEl);
   } else {
+    actInView = true;
     start();
   }
 
