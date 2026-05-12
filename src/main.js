@@ -261,14 +261,14 @@ createGaitView({
   restartBtn: document.getElementById('restartBtn2'),
 });
 
-// Act 3 lives in its own module. The "looking down at your own shoe"
-// camera angle has nothing in common with the side-profile walker in
-// Acts 1/2 — no gait kinematics, no scrolling world, no StoneSystem —
-// so it gets a dedicated renderer.
-import { createCrossSectionView } from 'crossSection';
-createCrossSectionView({
+// Act 3 is the only 3D act in the article (act3-3d-spec.md). It lives
+// in its own module with its own Three.js renderer; no shared state with
+// the 2D walker / stone system used elsewhere.
+import { createAct3View } from 'act3';
+createAct3View({
   canvasEl: document.getElementById('canvas3'),
   viewportEl: document.getElementById('viewport3'),
   collarHeightSlider: document.getElementById('collarHeight'),
   heelNotchSlider:    document.getElementById('heelNotch'),
+  stoneCountEl:       document.getElementById('stoneCount3'),
 });
