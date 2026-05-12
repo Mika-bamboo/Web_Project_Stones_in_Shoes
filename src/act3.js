@@ -60,26 +60,32 @@ function footprintAt(angle, footLength, footWidth) {
   return { x, z };
 }
 
-// ── Shoe builder ────────────────────────────────────────────────────────
-// Returns a Group containing the sole + upper meshes (and their black
-// outline shells). All geometry is created fresh each call — cheap, and
-// per spec §7 cleaner than mutating vertices in place.
-function buildShoe(params) {
+// ── Spec §3 collar-gap breathing table ──────────────────────────────────
+// 11 samples across one gait cycle, peaking around toe-off / mid-swing
+// when the foot flexes most relative to the leg. Values 0..1, scaled to
+// MAX_GAP cm at peak. Pedagogically exaggerated — see spec §3 final note.
+const GAP_OPENING = [0.2, 0.1, 0.1, 0.2, 0.4, 0.7, 0.9, 0.8, 0.6, 0.4, 0.2];
+const MAX_GAP = 1.2;
+
+function gapOpeningAt(phase) {
+  return sampleAt(GAP_OPENING, phase);
+}
+
+// ── Shoe: sole (built once) + upper (rebuilt per frame) ────────────────
+// Per spec §7 the geometry is cheap to regenerate, but the sole truly
+// doesn't change with sliders OR phase, so we build it once. The upper
+// (quarter + collar curve) IS function of (collarHeight, heelNotchWidth,
+// phase) and rebuilds each frame to animate the collar gap.
+function buildSole(params) {
   const {
     footLength = 25,
     footWidth = 9,
     soleThickness = 1.5,
-    collarHeight = 6,
-    heelNotchWidth = 0.4,
     perimeterSamples = 32,
     bodyMaterial,
     outlineMaterial,
   } = params;
 
-  const group = new THREE.Group();
-  group.name = 'shoe';
-
-  // ── 1. Sole ────────────────────────────────────────────────────────
   // ExtrudeGeometry from the footprint shape. Build the shape in XY
   // (Three.js Shape's native plane), then rotate so the footprint lies
   // in the world XZ plane with thickness along +Y.
@@ -89,26 +95,35 @@ function buildShoe(params) {
     const { x, z } = footprintAt(θ, footLength, footWidth);
     if (i === 0) shape.moveTo(x, z); else shape.lineTo(x, z);
   }
-
   const soleGeom = new THREE.ExtrudeGeometry(shape, {
     depth: soleThickness,
     bevelEnabled: false,
   });
-  // Shape was authored in XY (Z = -depth..0 after extrusion). Rotate so
-  // the footprint lies in XZ; then translate so the sole bottom is at
-  // Y=0 and top (rim) is at Y=soleThickness.
   soleGeom.rotateX(-Math.PI / 2);
   soleGeom.translate(0, soleThickness, 0);
 
-  const sole = new THREE.Mesh(soleGeom, bodyMaterial);
-  sole.name = 'sole';
-  group.add(sole);
+  const group = new THREE.Group();
+  group.name = 'sole';
+  group.add(new THREE.Mesh(soleGeom, bodyMaterial));
   group.add(makeOutline(soleGeom, outlineMaterial));
+  return group;
+}
 
-  // ── 2. Upper (quarter + collar) ────────────────────────────────────
-  // Vertical strip wrapping around the sole rim. Top edge = the collar
-  // curve (height varies with angle per collarHeightAt). Bottom edge =
-  // the rim at Y = soleThickness.
+function buildUpper(params) {
+  const {
+    footLength = 25,
+    footWidth = 9,
+    soleThickness = 1.5,
+    collarHeight,
+    heelNotchWidth,
+    phase = 0,
+    perimeterSamples = 32,
+    bodyMaterial,
+    outlineMaterial,
+  } = params;
+
+  const gap = gapOpeningAt(phase) * MAX_GAP;
+
   const rimPts = [];
   const collarPts = [];
   for (let i = 0; i < perimeterSamples; i++) {
@@ -116,21 +131,40 @@ function buildShoe(params) {
     const { x, z } = footprintAt(θ, footLength, footWidth);
     const h = collarHeightAt(θ, collarHeight, heelNotchWidth);
     rimPts.push(new THREE.Vector3(x, soleThickness, z));
-    collarPts.push(new THREE.Vector3(x, soleThickness + h, z));
+
+    // Collar vertices push outward in XZ from the ankle's central axis
+    // (X=0, Z=0) by `gap` cm — spec §3's "collar visibly breathes".
+    // Effect is large at the back (heel) where the collar is close to
+    // the ankle, naturally smaller at the toe where (x,z) is far from
+    // origin. Skipping points right at the axis (r≈0) avoids div-by-zero.
+    let cx = x, cz = z;
+    const r = Math.hypot(x, z);
+    if (r > 1e-3 && gap > 0) {
+      const k = (r + gap) / r;
+      cx = x * k;
+      cz = z * k;
+    }
+    collarPts.push(new THREE.Vector3(cx, soleThickness + h, cz));
   }
 
   const upperGeom = buildStripGeometry(rimPts, collarPts);
 
-  const upper = new THREE.Mesh(upperGeom, bodyMaterial);
-  upper.name = 'upper';
-  group.add(upper);
+  const group = new THREE.Group();
+  group.name = 'upper';
+  group.add(new THREE.Mesh(upperGeom, bodyMaterial));
   group.add(makeOutline(upperGeom, outlineMaterial));
 
-  // Expose the live collar curve so future steps (collision detection)
-  // can query the topline edge in world space.
+  // Expose the live collar curve so step 7's collision detection can
+  // query the current topline edge in world space.
   group.userData.collarCurve = collarPts;
-
   return group;
+}
+
+// Dispose every BufferGeometry under a Group, then clear children. The
+// inverted-hull outline geometries are cloned per-build, so they need
+// disposing too.
+function disposeGroup(group) {
+  group.traverse((o) => o.geometry && o.geometry.dispose());
 }
 
 // Build a closed-strip BufferGeometry between two equal-length rings of
@@ -328,9 +362,10 @@ export function createAct3View(opts) {
   controls.target.copy(lookTarget);
   controls.update();
 
-  // ── Shoe — rebuilt live from the two sliders (spec §7) ──────────────
-  // Materials are cached and reused; only the geometry is regenerated on
-  // each rebuild, so there's no shader recompile and no flicker.
+  // ── Shoe (sole + animated upper) ────────────────────────────────────
+  // Sole is built once — fixed footprint, independent of sliders/phase.
+  // Upper rebuilds every frame: collar height responds to the two
+  // sliders, and the collar curve breathes outward via gapOpeningAt(phase).
   // Slider mapping (range inputs default to 1..10 in index.html):
   //   collarHeight slider value → collar height in cm (1cm…10cm)
   //   heelNotch slider value    → heelNotchWidth (0..1, slider/10)
@@ -340,34 +375,46 @@ export function createAct3View(opts) {
     return { collarHeight: ch, heelNotchWidth: hn };
   }
 
-  let shoe = null;
-  function rebuildShoe() {
-    if (shoe) {
-      scene.remove(shoe);
-      shoe.traverse((o) => o.geometry && o.geometry.dispose());
+  scene.add(buildSole({ bodyMaterial, outlineMaterial }));
+
+  let upperGroup = null;
+  function rebuildUpper(phase) {
+    if (upperGroup) {
+      scene.remove(upperGroup);
+      disposeGroup(upperGroup);
     }
     const { collarHeight, heelNotchWidth } = readSliderParams();
-    shoe = buildShoe({
+    upperGroup = buildUpper({
       collarHeight,
       heelNotchWidth,
+      phase,
       bodyMaterial,
       outlineMaterial,
     });
-    scene.add(shoe);
+    scene.add(upperGroup);
   }
-  rebuildShoe();
 
-  if (collarHeightSlider) collarHeightSlider.addEventListener('input', rebuildShoe);
-  if (heelNotchSlider)    heelNotchSlider.addEventListener('input', rebuildShoe);
-
-  // ── Leg (step 4: static at phase 0) ─────────────────────────────────
-  // Anatomical ankle joint sits ~5cm above the sole, near the heel/arch
-  // hinge — pin the leg there. Step 5 will animate this through the gait
-  // cycle on a timer.
+  // ── Leg (animated through the gait cycle in place) ──────────────────
   const ankleAt = new THREE.Vector3(0, 6.5, 0);
   const leg = buildLeg({ bodyMaterial, outlineMaterial });
   scene.add(leg.group);
-  poseLeg(leg, 0, ankleAt);
+
+  // Phase is shared between leg pose and collar gap. Cadence chosen
+  // slower than a real walk (0.5 Hz = 2s per full cycle) so the user
+  // can see the gap breathing clearly. This is pedagogical pacing, not
+  // realistic — Act 1/2 already showed real walking speed.
+  let currentPhase = 0;
+  const PHASE_HZ = 0.5;
+
+  // Initial pose so the first paint is consistent.
+  rebuildUpper(currentPhase);
+  poseLeg(leg, currentPhase, ankleAt);
+
+  // Slider input restarts the upper rebuild immediately — no need to
+  // wait for the next animation tick.
+  function onSliderInput() { rebuildUpper(currentPhase); }
+  if (collarHeightSlider) collarHeightSlider.addEventListener('input', onSliderInput);
+  if (heelNotchSlider)    heelNotchSlider.addEventListener('input', onSliderInput);
 
   // ── Resize handling ──────────────────────────────────────────────────
   function resize() {
@@ -387,22 +434,35 @@ export function createAct3View(opts) {
   // ── Render loop, paused when off-screen (spec §10) ───────────────────
   let running = false;
   let rafId = null;
+  let lastTime = null;
 
-  function frame() {
+  function frame(now) {
     rafId = requestAnimationFrame(frame);
     controls.update();
+
+    if (lastTime !== null) {
+      const dt = Math.min((now - lastTime) / 1000, 1 / 30);
+      currentPhase = (currentPhase + dt * PHASE_HZ) % 1;
+    }
+    lastTime = now;
+
+    rebuildUpper(currentPhase);
+    poseLeg(leg, currentPhase, ankleAt);
+
     renderer.render(scene, camera);
   }
   function start() {
     if (running) return;
     running = true;
-    frame();
+    lastTime = null; // skip the first dt after a pause
+    rafId = requestAnimationFrame(frame);
   }
   function stop() {
     if (!running) return;
     running = false;
     if (rafId !== null) cancelAnimationFrame(rafId);
     rafId = null;
+    lastTime = null;
   }
   if (typeof IntersectionObserver !== 'undefined') {
     const io = new IntersectionObserver((entries) => {
@@ -415,5 +475,5 @@ export function createAct3View(opts) {
     start();
   }
 
-  return { renderer, scene, camera, rebuildShoe };
+  return { renderer, scene, camera };
 }
