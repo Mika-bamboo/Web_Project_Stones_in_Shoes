@@ -19,6 +19,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GAIT, sampleAt } from 'gait';
 
 // ── Spec §3 collar parameterization ─────────────────────────────────────
 // Angle θ around the foot, with θ=0 at the HEEL (back) and θ=π at the TOE
@@ -165,6 +166,82 @@ function buildStripGeometry(bottomPts, topPts) {
   return g;
 }
 
+// ── Leg builder + poser (spec §4) ───────────────────────────────────────
+// Two cylinders + an implicit ankle joint, posed in the sagittal plane
+// (Z=0). The gait curves from gait.js are reused verbatim — the spec
+// is explicit about not re-deriving them.
+//
+// Convention: thigh/shank are unit cylinders authored along +Y. We pin
+// the ankle in the shoe (`ankleAt`) and solve UPWARD: knee = ankle +
+// (-shankDir)·shankLen, hip = knee + (-thighDir)·thighLen. This is the
+// inverse of leg.js's solveLeg(): in Acts 1/2 the foot moves while the
+// hip is the spine anchor; in Act 3 the foot is planted inside the shoe
+// while the hip swings around it.
+function buildLeg(params) {
+  const {
+    thighLen = 35,
+    shankLen = 40,
+    legRadius = 4,
+    bodyMaterial,
+    outlineMaterial,
+  } = params;
+
+  const group = new THREE.Group();
+  group.name = 'leg';
+
+  // Slight taper on the shank (thicker at knee, narrower at ankle); the
+  // thigh is uniform for v1 — spec §9 calls thigh taper a nice-to-have.
+  const thighGeom = new THREE.CylinderGeometry(legRadius, legRadius, thighLen, 16);
+  const shankGeom = new THREE.CylinderGeometry(legRadius, legRadius * 0.7, shankLen, 16);
+
+  const thigh = new THREE.Mesh(thighGeom, bodyMaterial);
+  thigh.name = 'thigh';
+  const shank = new THREE.Mesh(shankGeom, bodyMaterial);
+  shank.name = 'shank';
+  const thighOutline = makeOutline(thighGeom, outlineMaterial);
+  const shankOutline = makeOutline(shankGeom, outlineMaterial);
+
+  group.add(thigh, shank, thighOutline, shankOutline);
+
+  return { group, thigh, shank, thighOutline, shankOutline, thighLen, shankLen };
+}
+
+// Pose the leg cylinders for a given gait phase, with the ankle pinned
+// at `ankleAt` (a THREE.Vector3 in scene space).
+function poseLeg(leg, phase, ankleAt) {
+  const hipRad  = sampleAt(GAIT.hip,  phase) * Math.PI / 180;
+  const kneeRad = sampleAt(GAIT.knee, phase) * Math.PI / 180;
+
+  // In the sagittal plane (XY): a thigh at hipAngle=0 hangs straight down
+  // (-Y), forward flex (+hipRad) tilts it toward +X. The shank's world
+  // angle is thighAngle - kneeRad (knee folds the shank backward).
+  const shankAngle = hipRad - kneeRad;
+
+  // Shank direction is "downward" (ankle-from-knee). To go knee-from-ankle
+  // we negate.
+  const shankUp = new THREE.Vector3(-Math.sin(shankAngle),  Math.cos(shankAngle), 0);
+  const thighUp = new THREE.Vector3(-Math.sin(hipRad),      Math.cos(hipRad),     0);
+
+  const ankle = ankleAt.clone();
+  const knee  = ankle.clone().add(shankUp.clone().multiplyScalar(leg.shankLen));
+  const hip   = knee.clone().add(thighUp.clone().multiplyScalar(leg.thighLen));
+
+  alignCylinder(leg.shank,        ankle, knee);
+  alignCylinder(leg.shankOutline, ankle, knee);
+  alignCylinder(leg.thigh,        knee,  hip);
+  alignCylinder(leg.thighOutline, knee,  hip);
+}
+
+// Position+orient a unit-Y CylinderGeometry mesh so its bottom face lands
+// at p1 and top face at p2.
+const _Y_AXIS = new THREE.Vector3(0, 1, 0);
+function alignCylinder(mesh, p1, p2) {
+  const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+  mesh.position.copy(mid);
+  const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+  mesh.quaternion.setFromUnitVectors(_Y_AXIS, dir);
+}
+
 // Inverted-hull outline (spec §5). Renders the back faces of a slightly
 // inflated copy in solid black; together with the toon-shaded front
 // faces this reads as a line-art outline — same look as the 2D acts.
@@ -282,6 +359,15 @@ export function createAct3View(opts) {
 
   if (collarHeightSlider) collarHeightSlider.addEventListener('input', rebuildShoe);
   if (heelNotchSlider)    heelNotchSlider.addEventListener('input', rebuildShoe);
+
+  // ── Leg (step 4: static at phase 0) ─────────────────────────────────
+  // Anatomical ankle joint sits ~5cm above the sole, near the heel/arch
+  // hinge — pin the leg there. Step 5 will animate this through the gait
+  // cycle on a timer.
+  const ankleAt = new THREE.Vector3(0, 6.5, 0);
+  const leg = buildLeg({ bodyMaterial, outlineMaterial });
+  scene.add(leg.group);
+  poseLeg(leg, 0, ankleAt);
 
   // ── Resize handling ──────────────────────────────────────────────────
   function resize() {
