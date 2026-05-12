@@ -4,20 +4,20 @@
 //   1. Empty scene + test cube         ← done
 //   2. Footprint outline only          ← done
 //   3. Sole slab                       ← done
-//   4. Side silhouette curve           ← CURRENT
-//   5. Closed-top lofted shell
-//   6. Open the top via collarHeightAt
+//   4. Side silhouette curve           ← done
+//   5. Closed-top lofted shell         ← done
+//   6. Open the top via collarHeightAt ← CURRENT
 //   7. Hook up sliders
 //   8. Static leg
 //   9. Animate phase + gap breathing
 //  10. 3D stones (scroll-triggered)
 //  11. Collar-gap collision + counter
 //
-// Step 3 extrudes the step-2 footprint into a foot-shaped puck. Step 4
-// overlays the upper's top-edge height profile as a polyline above the
-// sole's lateral edge — the §11/§9.3 way to confirm the ankle peak and
-// throat dip exist before lofting any 3D shell. The polyline is
-// temporary: step 5 replaces it with the actual cross-section loft.
+// Step 5 lofts half-ellipse cross-sections along the length with
+// closed tops — the "moccasin" stage. Step 6 carves an oval opening on
+// top so the foot can enter; the carve region runs from inside the
+// heel cup back to the throat. End caps shrink the cross-section to a
+// point at the tips so the heel and toe round in 3D.
 //
 // Coordinate convention:
 //   +X = forward (toe), +Y = up, +Z = lateral side of the (right) foot.
@@ -105,24 +105,89 @@ function upperHeightAlongLength(t, collarHeight = COLLAR_HEIGHT, heelNotch = HEE
   return              lerp(toeTop,    0.5,       (t - 0.85) / 0.15);
 }
 
-// Step-4 verification overlay: trace the top edge of the upper along
-// the sole's lateral side. Open polyline (Line, not LineLoop). Removed
-// in step 5 when the loft replaces it.
-function buildSideSilhouetteCurve(material) {
-  const N = 128;
+// ── Topline carve (addendum §5) ────────────────────────────────────────
+// The collar opening is an oval in (t, jNorm) parameter space sitting
+// on the apex of the half-ellipse loft. jNorm = 0 is the lateral rim,
+// 0.5 is the cross-section apex over the foot, 1 is the medial rim.
+// Quads inside this oval are skipped, leaving the topline as a hole on
+// top of the shell.
+//
+// Range: extends back from inside the heel cup (so the cup wall stays
+// visible from above) forward to the throat. The sinusoidal taper
+// shapes the opening's perimeter into a smooth oval.
+const OPENING_T_BACK   = 0.06;
+const OPENING_T_FRONT  = 0.55;
+const OPENING_MAX_HALF = 0.32;
+
+function openingHalfWidthAt(t) {
+  if (t <= OPENING_T_BACK || t >= OPENING_T_FRONT) return 0;
+  const u = (t - OPENING_T_BACK) / (OPENING_T_FRONT - OPENING_T_BACK);
+  // Slight back-bias: widest near the ankle (~25% along the opening),
+  // narrowing into the throat.
+  const profile = Math.sin(u * Math.PI) * (1 - 0.18 * u);
+  return OPENING_MAX_HALF * profile;
+}
+
+function isInOpening(t, jNorm) {
+  const halfWid = openingHalfWidthAt(t);
+  return halfWid > 0.01 && Math.abs(jNorm - 0.5) < halfWid;
+}
+
+// ── Shoe upper (addendum §4 + §5) ──────────────────────────────────────
+// Sample nLength cross-sections along the length. Each cross-section
+// is a half-ellipse at apex height upperHeightAlongLength(t), width
+// halfWidthAt(s), both scaled to 0 at the tips so the heel and toe
+// round in 3D. Adjacent cross-sections form quads; quads inside the
+// topline carve are skipped, leaving the foot opening.
+function buildShoeUpper(bodyMaterial, outlineMaterial) {
+  const nLength = 60;
+  const nCross  = 24;
+  const stride  = nCross + 1;
+
   const positions = [];
-  for (let i = 0; i <= N; i++) {
-    const t = i / N;
+  for (let i = 0; i <= nLength; i++) {
+    const t = i / nLength;
     const { x, scale, s } = lengthCoords(t);
-    const y = SOLE_THICKNESS + upperHeightAlongLength(t);
-    const z = halfWidthAt(s) * scale;
-    positions.push(x, y, z);
+    const w = halfWidthAt(s) * scale;
+    const h = upperHeightAlongLength(t) * scale;
+    for (let j = 0; j <= nCross; j++) {
+      const a = (j / nCross) * Math.PI;
+      const z = w * Math.cos(a);
+      const y = SOLE_THICKNESS + h * Math.sin(a);
+      positions.push(x, y, z);
+    }
   }
+
+  const indices = [];
+  for (let i = 0; i < nLength; i++) {
+    const tCenter = (i + 0.5) / nLength;
+    const inBody = lengthCoords(tCenter).scale === 1;
+    for (let j = 0; j < nCross; j++) {
+      const jNorm = (j + 0.5) / nCross;
+      // Only carve within the body; rounded heel + toe caps stay closed
+      // so the heel cup and toe box are solid.
+      if (inBody && isInOpening(tCenter, jNorm)) continue;
+
+      const v00 = i * stride + j;
+      const v01 = v00 + 1;
+      const v10 = (i + 1) * stride + j;
+      const v11 = v10 + 1;
+      // CCW from outside the shell.
+      indices.push(v00, v10, v11);
+      indices.push(v00, v11, v01);
+    }
+  }
+
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  const line = new THREE.Line(geom, material);
-  line.name = 'sideSilhouette';
-  return line;
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+
+  const group = new THREE.Group();
+  group.name = 'shoeUpper';
+  group.add(new THREE.Mesh(geom, bodyMaterial));
+  group.add(makeOutline(geom, outlineMaterial));
+  return group;
 }
 
 // ── Sole (addendum §6) ──────────────────────────────────────────────────
@@ -193,7 +258,7 @@ export function createAct3View(opts) {
 
   const camera = new THREE.PerspectiveCamera(35, 1, 1, 500);
   camera.position.set(28, 22, 30);
-  const lookTarget = new THREE.Vector3(4, 1, 0);
+  const lookTarget = new THREE.Vector3(4, 3, 0);
   camera.lookAt(lookTarget);
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -212,16 +277,11 @@ export function createAct3View(opts) {
     color: 0x1a1a1a,
     side: THREE.BackSide,
   });
-  // Step-4 overlay material: a single-tone line; theme-aware so it stays
-  // visible on both backgrounds. Distinct from outlineMaterial only so
-  // toggling step 4 vs the final shell is easy to spot.
-  const silhouetteMaterial = new THREE.LineBasicMaterial({ color: 0x1a1a1a });
   function applyTheme() {
     const dark = darkQuery.matches;
     scene.background = new THREE.Color(dark ? 0x111111 : 0xffffff);
     bodyMaterial.color.setHex(dark ? 0xdddddd : 0xffffff);
     outlineMaterial.color.setHex(dark ? 0xe4e4e4 : 0x1a1a1a);
-    silhouetteMaterial.color.setHex(dark ? 0xe4e4e4 : 0x1a1a1a);
   }
   applyTheme();
   darkQuery.addEventListener('change', applyTheme);
@@ -237,7 +297,7 @@ export function createAct3View(opts) {
   controls.update();
 
   scene.add(buildSole(bodyMaterial, outlineMaterial));
-  scene.add(buildSideSilhouetteCurve(silhouetteMaterial));
+  scene.add(buildShoeUpper(bodyMaterial, outlineMaterial));
 
   // ── Resize ──────────────────────────────────────────────────────────
   function resize() {
