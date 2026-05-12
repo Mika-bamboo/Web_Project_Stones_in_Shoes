@@ -167,6 +167,26 @@ function disposeGroup(group) {
   group.traverse((o) => o.geometry && o.geometry.dispose());
 }
 
+// Standard 2D point-in-polygon (ray cast +X). Polygon is `pts`, treated
+// as a closed loop in the XZ plane (only .x and .z are read).
+function pointInCollarXZ(x, z, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i].x, zi = pts[i].z;
+    const xj = pts[j].x, zj = pts[j].z;
+    const intersect = ((zi > z) !== (zj > z)) &&
+                      (x < (xj - xi) * (z - zi) / (zj - zi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Y above which a stone is too high to be considered for collar entry.
+// Slightly above the spec's max-collarHeight (10cm) + the breathing gap
+// max so the test triggers the moment a stone passes the rim, regardless
+// of where it is in the breathing cycle.
+const COLLAR_RIM_Y_CEILING = 13;
+
 // ── 3D stone system (spec §6) ───────────────────────────────────────────
 // Stones are independent of the 2D StoneSystem used in Acts 1/2/6 — Act 3
 // is its own world. Each stone is a low-subdivision Icosahedron flying
@@ -232,13 +252,13 @@ class Stone3DSystem {
     }
   }
 
-  update(dt) {
+  update(dt, collarCurve) {
     const g = this.gravity;
     for (let i = this.stones.length - 1; i >= 0; i--) {
       const s = this.stones[i];
       s.age += dt;
 
-      if (s.state === 'flying') {
+      if (s.state === 'flying' || s.state === 'entered') {
         s.mesh.position.x += s.vel.x * dt;
         s.mesh.position.y += s.vel.y * dt;
         s.mesh.position.z += s.vel.z * dt;
@@ -248,7 +268,34 @@ class Stone3DSystem {
         s.mesh.rotation.x += s.spin.x * dt;
         s.mesh.rotation.y += s.spin.y * dt;
         s.mesh.rotation.z += s.spin.z * dt;
+      }
 
+      // ── Collar-gap entry (spec §6) ────────────────────────────────
+      // Test on every flying, falling stone. The collar curve is sampled
+      // in XZ; a standard ray-cast point-in-polygon is enough — the
+      // collar is convex enough not to fool it.
+      if (s.state === 'flying' && s.vel.y < 0 && collarCurve) {
+        // Cheap prefilter: skip stones still well above the collar.
+        if (s.mesh.position.y < COLLAR_RIM_Y_CEILING &&
+            pointInCollarXZ(s.mesh.position.x, s.mesh.position.z, collarCurve)) {
+          s.state = 'entered';
+          this.trappedCount++;
+          s.fadeAge = 0;
+        }
+      }
+
+      // 'entered' stones fade out over ~0.4 s — they have visibly fallen
+      // through the collar; the shoe interior isn't modeled, so we don't
+      // try to render them piling up inside.
+      if (s.state === 'entered') {
+        s.fadeAge += dt;
+        const k = Math.max(0, 1 - s.fadeAge / 0.4);
+        s.mesh.scale.setScalar(k);
+        if (s.fadeAge >= 0.4) {
+          this.remove(i);
+          continue;
+        }
+      } else if (s.state === 'flying') {
         // Hit the ground (Y=0). If falling, settle.
         if (s.mesh.position.y - s.radius <= 0 && s.vel.y < 0) {
           s.state = 'settled';
@@ -422,6 +469,7 @@ export function createAct3View(opts) {
     viewportEl,
     collarHeightSlider = null,
     heelNotchSlider = null,
+    stoneCountEl = null,
   } = opts;
   if (!canvasEl || !viewportEl) return;
 
@@ -578,6 +626,7 @@ export function createAct3View(opts) {
   let running = false;
   let rafId = null;
   let lastTime = null;
+  let lastShownTrappedCount = -1;
 
   function frame(now) {
     rafId = requestAnimationFrame(frame);
@@ -590,7 +639,12 @@ export function createAct3View(opts) {
 
     rebuildUpper(currentPhase);
     poseLeg(leg, currentPhase, ankleAt);
-    stones.update(dt);
+    stones.update(dt, upperGroup ? upperGroup.userData.collarCurve : null);
+
+    if (stoneCountEl && stones.trappedCount !== lastShownTrappedCount) {
+      stoneCountEl.textContent = String(stones.trappedCount);
+      lastShownTrappedCount = stones.trappedCount;
+    }
 
     renderer.render(scene, camera);
   }
@@ -616,8 +670,11 @@ export function createAct3View(opts) {
         } else {
           stop();
           // Drop in-flight stones when leaving the act so the user
-          // doesn't return later to a frozen mid-air pile.
+          // doesn't return later to a frozen mid-air pile. Counter
+          // resets too — re-entering should feel like a clean slate.
           stones.reset();
+          if (stoneCountEl) stoneCountEl.textContent = '0';
+          lastShownTrappedCount = -1;
         }
       }
     }, { threshold: 0.05 });
