@@ -193,7 +193,12 @@ function makeOutline(geometry, outlineMaterial) {
 // View factory
 // ────────────────────────────────────────────────────────────────────────
 export function createAct3View(opts) {
-  const { canvasEl, viewportEl } = opts;
+  const {
+    canvasEl,
+    viewportEl,
+    collarHeightSlider = null,
+    heelNotchSlider = null,
+  } = opts;
   if (!canvasEl || !viewportEl) return;
 
   const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true });
@@ -246,24 +251,37 @@ export function createAct3View(opts) {
   controls.target.copy(lookTarget);
   controls.update();
 
-  // ── Shoe (step 2: hardcoded params) ──────────────────────────────────
-  // Subsequent steps replace `params` with live slider values and rebuild
-  // the geometry on input.
+  // ── Shoe — rebuilt live from the two sliders (spec §7) ──────────────
+  // Materials are cached and reused; only the geometry is regenerated on
+  // each rebuild, so there's no shader recompile and no flicker.
+  // Slider mapping (range inputs default to 1..10 in index.html):
+  //   collarHeight slider value → collar height in cm (1cm…10cm)
+  //   heelNotch slider value    → heelNotchWidth (0..1, slider/10)
+  function readSliderParams() {
+    const ch = collarHeightSlider ? parseFloat(collarHeightSlider.value) : 6;
+    const hn = heelNotchSlider ? parseFloat(heelNotchSlider.value) / 10 : 0.4;
+    return { collarHeight: ch, heelNotchWidth: hn };
+  }
+
   let shoe = null;
   function rebuildShoe() {
     if (shoe) {
       scene.remove(shoe);
       shoe.traverse((o) => o.geometry && o.geometry.dispose());
     }
+    const { collarHeight, heelNotchWidth } = readSliderParams();
     shoe = buildShoe({
-      collarHeight: 6,
-      heelNotchWidth: 0.4,
+      collarHeight,
+      heelNotchWidth,
       bodyMaterial,
       outlineMaterial,
     });
     scene.add(shoe);
   }
   rebuildShoe();
+
+  if (collarHeightSlider) collarHeightSlider.addEventListener('input', rebuildShoe);
+  if (heelNotchSlider)    heelNotchSlider.addEventListener('input', rebuildShoe);
 
   // ── Resize handling ──────────────────────────────────────────────────
   function resize() {
