@@ -1,8 +1,15 @@
 // Act 3 — 3D scene per act3-3d-spec.md.
 //
-// Step-2 build (revision): static parametric shoe — sole + closed-dome
-// upper with a rounded toe, rounded heel, and a carved-out collar
-// opening on top. No sliders, no leg, no stones yet.
+// Static parametric shoe built as a lofted half-ellipse shell over a
+// foot-shaped sole, per act3-shoe-shape-addendum.md. No sliders, no leg,
+// no stones yet.
+//
+// Construction (addendum §1):
+//   1. Footprint outline (top view)     → halfWidthAt(s)
+//   2. Side silhouette (height profile) → heightAt(s)
+//   3. Half-ellipse cross-section swept along the length → upper shell
+//   4. Topline carve (the collar opening) → openingHalfWidthAt(s)
+//   5. Sole slab extruded below the footprint.
 //
 // Coordinate convention:
 //   +X = forward (toe direction), heel at −X
@@ -15,117 +22,122 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // ── Fixed dimensions ────────────────────────────────────────────────────
-const HEEL_BACK = -5;
-const FOOT_LENGTH = 25;
-const FOOT_WIDTH = 9;
+const FOOT_LENGTH    = 25;          // length of the body (excl. caps)
 const SOLE_THICKNESS = 1.5;
+const COLLAR_HEIGHT  = 7.0;         // ankle peak height (future slider)
+const HEEL_NOTCH     = 0.4;         // heel cup dip 0..1 (future slider)
 
-// ── Foot/upper profile (along the BODY portion, excluding end caps) ────
-// `s` ∈ [0, 1]: 0 = heel-end-of-body, 1 = toe-end-of-body.
-// Cross-section is a half-ellipse: half-width = widthAt(s), height above
-// sole = heightAt(s).
-const WIDTH_KEYS = [
-  [0.00, 3.4],   // heel
-  [0.40, 4.5],   // ball (widest)
-  [0.80, 3.6],
-  [1.00, 2.4],   // narrows toward toe cap
-];
+const HEEL_BODY_X    = -5;
+const TOE_BODY_X     = HEEL_BODY_X + FOOT_LENGTH;
 
-const HEIGHT_KEYS = [
-  [0.00, 6.2],   // heel counter rim
-  [0.12, 8.4],   // ankle/throat back peak (highest point of the upper)
-  [0.32, 6.2],   // throat front (dips before the vamp)
-  [0.58, 5.4],   // vamp / instep
-  [0.85, 3.8],
-  [1.00, 2.8],   // toe-box rim height (before toe cap rounds it off)
-];
+// End-cap rounding. Heel cap is short so the heel notch curve stays
+// visible from behind; toe cap is longer for a clean rounded toe box.
+const HEEL_CAP_FRAC  = 0.06;
+const TOE_CAP_FRAC   = 0.10;
+const HEEL_CAP_REACH = 1.4;
+const TOE_CAP_REACH  = 2.8;
 
-function lerpKeys(keys, s) {
-  if (s <= keys[0][0]) return keys[0][1];
-  for (let i = 0; i < keys.length - 1; i++) {
-    if (s <= keys[i + 1][0]) {
-      const t = (s - keys[i][0]) / (keys[i + 1][0] - keys[i][0]);
-      return keys[i][1] * (1 - t) + keys[i + 1][1] * t;
-    }
-  }
-  return keys[keys.length - 1][1];
+const lerp = (a, b, t) => a * (1 - t) + b * t;
+
+// ── Footprint: half-width along the length (addendum §2) ───────────────
+// s ∈ [0,1]: 0 = heel-body, 1 = toe-body.
+// Anatomy: heel-cup taper, arch dip at ~0.45, ball-of-foot bulge at
+// ~0.78, narrowing toe. Without the ball bulge the silhouette reads as
+// a wedge — that bulge is the signature foot-shape feature.
+function halfWidthAt(s) {
+  const baseline  = 3.8;
+  const ballBulge =  Math.exp(-Math.pow((s - 0.78) * 3.6, 2)) * 1.5;
+  const archDip   = -Math.exp(-Math.pow((s - 0.45) * 6.0, 2)) * 0.9;
+  const heelTrim  = -Math.exp(-Math.pow((s - 0.00) * 4.5, 2)) * 0.6;
+  const toeTrim   = -Math.exp(-Math.pow((s - 1.00) * 4.0, 2)) * 1.0;
+  return baseline + ballBulge + archDip + heelTrim + toeTrim;
 }
 
-const widthAt  = (s) => lerpKeys(WIDTH_KEYS,  s);
-const heightAt = (s) => lerpKeys(HEIGHT_KEYS, s);
+// ── Side silhouette: upper height along the length (addendum §3) ───────
+// Returns the half-ellipse cross-section apex height above the sole top.
+// Four anchors: heel cup (dipped by HEEL_NOTCH), ankle peak (the
+// collar height), throat (where the laces start, dips down), toe box.
+function heightAt(s) {
+  const heelTop   = COLLAR_HEIGHT * (1 - HEEL_NOTCH * 0.5);
+  const ankleTop  = COLLAR_HEIGHT;
+  const throatTop = COLLAR_HEIGHT * 0.55;
+  const toeTop    = 2.2;
+  if (s < 0.20) return lerp(heelTop,   ankleTop,  s / 0.20);
+  if (s < 0.50) return lerp(ankleTop,  throatTop, (s - 0.20) / 0.30);
+  if (s < 0.90) return lerp(throatTop, toeTop,    (s - 0.50) / 0.40);
+  return                 lerp(toeTop,  1.4,       (s - 0.90) / 0.10);
+}
 
-// ── End-cap rounding ────────────────────────────────────────────────────
-// The length parameter t ∈ [0, 1] covers the entire shoe end-to-end:
-//   t ∈ [0, HEEL_CAP_FRAC]:   rounded heel cap (cross-section grows from 0)
-//   t ∈ [HEEL_CAP_FRAC, 1 − TOE_CAP_FRAC]:  the body (uses widthAt/heightAt)
-//   t ∈ [1 − TOE_CAP_FRAC, 1]:  rounded toe cap (cross-section shrinks to 0)
-// The caps trace a quarter-circle in the XZ plane so the X coordinate
-// curves around back/forward instead of stopping flat. Result: rounded
-// ends, no teardrop point, no backward-pointing cone.
-const HEEL_CAP_FRAC = 0.10;
-const TOE_CAP_FRAC  = 0.13;
-const HEEL_CAP_REACH = 2.5; // how far back beyond HEEL_BACK the heel curves
-const TOE_CAP_REACH  = 3.0; // how far forward beyond the body the toe curves
-
+// ── Length sweep with rounded heel and toe caps ────────────────────────
+// t ∈ [0,1] covers the FULL shoe (heel tip to toe tip). Within the body
+// region, scale is 1 and `s` parameterizes the curves above. Within the
+// cap regions, the cross-section is scaled to 0 along a quarter-circle
+// in the XZ plane — that gives a 3D hemispherical rounding at each end.
 function lengthCoords(t) {
   if (t < HEEL_CAP_FRAC) {
     const a = (t / HEEL_CAP_FRAC) * (Math.PI / 2);
     return {
-      x: HEEL_BACK - HEEL_CAP_REACH * Math.cos(a),
+      x: HEEL_BODY_X - HEEL_CAP_REACH * Math.cos(a),
       scale: Math.sin(a),
-      sCore: 0,
+      s: 0,
     };
   }
   if (t > 1 - TOE_CAP_FRAC) {
     const a = ((t - (1 - TOE_CAP_FRAC)) / TOE_CAP_FRAC) * (Math.PI / 2);
     return {
-      x: HEEL_BACK + FOOT_LENGTH + TOE_CAP_REACH * Math.sin(a),
+      x: TOE_BODY_X + TOE_CAP_REACH * Math.sin(a),
       scale: Math.cos(a),
-      sCore: 1,
+      s: 1,
     };
   }
-  const sCore = (t - HEEL_CAP_FRAC) / (1 - HEEL_CAP_FRAC - TOE_CAP_FRAC);
+  const s = (t - HEEL_CAP_FRAC) / (1 - HEEL_CAP_FRAC - TOE_CAP_FRAC);
   return {
-    x: HEEL_BACK + sCore * FOOT_LENGTH,
+    x: HEEL_BODY_X + s * FOOT_LENGTH,
     scale: 1,
-    sCore,
+    s,
   };
 }
 
-// ── Collar opening (carved into the back-top of the upper) ──────────────
-// The opening is an ellipse in (t, jNorm) space, where jNorm ∈ [0, 1] is
-// the normalized cross-section index (0 = lateral rim, 0.5 = top of foot,
-// 1 = medial rim). Centered behind the throat peak.
-const COLLAR_T_BACK   = 0.13;
-const COLLAR_T_FRONT  = 0.42;
-const COLLAR_J_HALFWID = 0.20;
+// ── Topline carve: the collar opening (addendum §5) ────────────────────
+// At each s along the body, skip the top portion of the cross-section
+// so the shell has an oval opening up top. jNorm ∈ [0,1]: 0 = lateral
+// rim, 0.5 = apex above foot, 1 = medial rim. The opening starts just
+// forward of the heel (so the heel cup wall remains closed and visible
+// from behind) and ends at the throat.
+const OPENING_S_BACK   = 0.10;
+const OPENING_S_FRONT  = 0.55;
+const OPENING_MAX_HALF = 0.30;
 
-function isInCollarOpening(t, jNorm) {
-  if (t < COLLAR_T_BACK || t > COLLAR_T_FRONT) return false;
-  // Taper the opening width to a smooth oval — narrower at the very
-  // back (heel notch) and at the throat front, widest in the middle.
-  const tNorm = (t - COLLAR_T_BACK) / (COLLAR_T_FRONT - COLLAR_T_BACK);
-  const taper = Math.sin(tNorm * Math.PI);
-  const halfWid = COLLAR_J_HALFWID * taper;
-  return Math.abs(jNorm - 0.5) < halfWid;
+function openingHalfWidthAt(s) {
+  if (s <= OPENING_S_BACK || s >= OPENING_S_FRONT) return 0;
+  const u = (s - OPENING_S_BACK) / (OPENING_S_FRONT - OPENING_S_BACK);
+  // Sinusoidal taper, slightly biased back so the widest part of the
+  // opening sits over the ankle rather than the throat.
+  const profile = Math.sin(u * Math.PI) * (1 - 0.15 * u);
+  return OPENING_MAX_HALF * profile;
+}
+
+function isInOpening(s, jNorm) {
+  const halfWid = openingHalfWidthAt(s);
+  return halfWid > 0.01 && Math.abs(jNorm - 0.5) < halfWid;
 }
 
 // ── Sole ────────────────────────────────────────────────────────────────
-// ExtrudeGeometry of a 2D foot-shaped outline. The outline includes the
-// rounded heel/toe end-caps so the sole matches the upper's footprint.
+// ExtrudeGeometry of the footprint outline. The outline walks the
+// perimeter using the same lengthCoords + halfWidthAt so the sole edge
+// matches the upper exactly.
 function buildSole(bodyMaterial, outlineMaterial) {
-  const N = 64;
+  const N = 96;
   const shape = new THREE.Shape();
   for (let i = 0; i <= N; i++) {
-    // 0 → tip-of-heel (lateral side); 0.5 → tip-of-toe; 1 → tip-of-heel
-    // (medial side). Walk the body forward along the lateral side, then
-    // back along the medial side.
+    // 0 → heel tip; lateral side forward to toe tip at u=0.5; medial
+    // side back to heel tip at u=1.
     const u = i / N;
     const lateral = u < 0.5;
     const t = lateral ? (u * 2) : ((1 - u) * 2);
     const sign = lateral ? 1 : -1;
-    const { x, scale, sCore } = lengthCoords(t);
-    const z = sign * widthAt(sCore) * scale;
+    const { x, scale, s } = lengthCoords(t);
+    const z = sign * halfWidthAt(s) * scale;
     if (i === 0) shape.moveTo(x, z); else shape.lineTo(x, z);
   }
 
@@ -143,22 +155,22 @@ function buildSole(bodyMaterial, outlineMaterial) {
   return group;
 }
 
-// ── Shoe upper ──────────────────────────────────────────────────────────
-// Parametric grid (i along the length, j around the half-ellipse cross-
-// section). Quads inside the collar opening are skipped, leaving a hole
-// on top. Rounded toe + heel caps are part of the grid (no separate
-// fan), so silhouette is smooth everywhere.
+// ── Shoe upper (lofted shell, addendum §4) ─────────────────────────────
+// Sample nLength cross-sections along the length. Each cross-section is
+// a half-ellipse parameterized by j ∈ [0, nCross]: a = j/nCross * π,
+// y = sole_top + h*sin(a), z = w*cos(a). Adjacent cross-sections are
+// connected with quads; quads inside the topline carve are skipped.
 function buildShoeUpper(bodyMaterial, outlineMaterial) {
-  const nLength = 40;
-  const nCross  = 18;
+  const nLength = 56;
+  const nCross  = 24;
   const stride  = nCross + 1;
 
   const positions = [];
   for (let i = 0; i <= nLength; i++) {
     const t = i / nLength;
-    const { x, scale, sCore } = lengthCoords(t);
-    const w = widthAt(sCore) * scale;
-    const h = heightAt(sCore) * scale;
+    const { x, scale, s } = lengthCoords(t);
+    const w = halfWidthAt(s) * scale;
+    const h = heightAt(s)   * scale;
     for (let j = 0; j <= nCross; j++) {
       const a = (j / nCross) * Math.PI;
       const z = w * Math.cos(a);
@@ -169,16 +181,20 @@ function buildShoeUpper(bodyMaterial, outlineMaterial) {
 
   const indices = [];
   for (let i = 0; i < nLength; i++) {
+    const tCenter = (i + 0.5) / nLength;
+    const lc = lengthCoords(tCenter);
+    // Only the body region carries the topline carve; the rounded cap
+    // regions stay closed so the toe box and heel cup are solid.
+    const canCarve = lc.scale === 1;
     for (let j = 0; j < nCross; j++) {
-      const tCenter = (i + 0.5) / nLength;
-      const jNorm   = (j + 0.5) / nCross;
-      if (isInCollarOpening(tCenter, jNorm)) continue;
+      const jNorm = (j + 0.5) / nCross;
+      if (canCarve && isInOpening(lc.s, jNorm)) continue;
 
       const v00 = i * stride + j;
       const v01 = v00 + 1;
       const v10 = (i + 1) * stride + j;
       const v11 = v10 + 1;
-      // CCW from outside the dome (which is the visible side).
+      // CCW from outside the shell.
       indices.push(v00, v10, v11);
       indices.push(v00, v11, v01);
     }
