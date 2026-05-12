@@ -6,8 +6,8 @@
 //   3. Sole slab                       ← done
 //   4. Side silhouette curve           ← done
 //   5. Closed-top lofted shell         ← done
-//   6. Open the top via collarHeightAt ← CURRENT
-//   7. Hook up sliders
+//   6. Open the top via collarHeightAt ← done
+//   7. Hook up sliders                 ← CURRENT
 //   8. Static leg
 //   9. Animate phase + gap breathing
 //  10. 3D stones (scroll-triggered)
@@ -98,11 +98,16 @@ function upperHeightAlongLength(t, collarHeight = COLLAR_HEIGHT, heelNotch = HEE
   const heelTop   = collarHeight * (1 - heelNotch * 0.5);
   const ankleTop  = collarHeight;
   const throatTop = collarHeight * 0.65;
-  const toeTop    = 2.0;
+  // Clamp the toe rim and tip so they stay below the ankle peak across
+  // the full slider range. At collarHeight = 6 this matches the
+  // addendum's 2.0 / 0.5 defaults; at low collars the toe scales down
+  // proportionally so the silhouette doesn't invert.
+  const toeTop    = Math.min(2.0, collarHeight * 0.35);
+  const toeTipTop = Math.min(0.5, collarHeight * 0.10);
   if (t < 0.15) return lerp(heelTop,   ankleTop,  t / 0.15);
   if (t < 0.40) return lerp(ankleTop,  throatTop, (t - 0.15) / 0.25);
   if (t < 0.85) return lerp(throatTop, toeTop,    (t - 0.40) / 0.45);
-  return              lerp(toeTop,    0.5,       (t - 0.85) / 0.15);
+  return              lerp(toeTop,    toeTipTop, (t - 0.85) / 0.15);
 }
 
 // ── Topline carve (addendum §5) ────────────────────────────────────────
@@ -139,7 +144,7 @@ function isInOpening(t, jNorm) {
 // halfWidthAt(s), both scaled to 0 at the tips so the heel and toe
 // round in 3D. Adjacent cross-sections form quads; quads inside the
 // topline carve are skipped, leaving the foot opening.
-function buildShoeUpper(bodyMaterial, outlineMaterial) {
+function buildShoeUpper(bodyMaterial, outlineMaterial, collarHeight, heelNotch) {
   const nLength = 60;
   const nCross  = 24;
   const stride  = nCross + 1;
@@ -149,7 +154,7 @@ function buildShoeUpper(bodyMaterial, outlineMaterial) {
     const t = i / nLength;
     const { x, scale, s } = lengthCoords(t);
     const w = halfWidthAt(s) * scale;
-    const h = upperHeightAlongLength(t) * scale;
+    const h = upperHeightAlongLength(t, collarHeight, heelNotch) * scale;
     for (let j = 0; j <= nCross; j++) {
       const a = (j / nCross) * Math.PI;
       const z = w * Math.cos(a);
@@ -248,8 +253,22 @@ function makeOutline(geometry, outlineMaterial) {
 // View factory
 // ────────────────────────────────────────────────────────────────────────
 export function createAct3View(opts) {
-  const { canvasEl, viewportEl } = opts;
+  const { canvasEl, viewportEl, collarHeightSlider, heelNotchSlider } = opts;
   if (!canvasEl || !viewportEl) return;
+
+  // Slider → parameter mappings (spec §12: collarHeight 3–10 cm,
+  // heelNotch 0–1). Sliders run 1–10 in the HTML; collarHeight maps
+  // directly to cm, heelNotch divides by 10 to land in [0.1, 1.0].
+  function readCollarHeight() {
+    return collarHeightSlider
+      ? parseFloat(collarHeightSlider.value)
+      : COLLAR_HEIGHT;
+  }
+  function readHeelNotch() {
+    return heelNotchSlider
+      ? parseFloat(heelNotchSlider.value) / 10
+      : HEEL_NOTCH;
+  }
 
   const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -297,7 +316,52 @@ export function createAct3View(opts) {
   controls.update();
 
   scene.add(buildSole(bodyMaterial, outlineMaterial));
-  scene.add(buildShoeUpper(bodyMaterial, outlineMaterial));
+
+  // Upper rebuilds whenever a slider changes (spec §7). The geometry is
+  // small enough that full rebuild is cheaper than vertex mutation.
+  let upperGroup = buildShoeUpper(
+    bodyMaterial, outlineMaterial,
+    readCollarHeight(), readHeelNotch(),
+  );
+  scene.add(upperGroup);
+
+  function rebuildUpper() {
+    scene.remove(upperGroup);
+    upperGroup.traverse((obj) => {
+      if (obj.isMesh && obj.geometry) obj.geometry.dispose();
+    });
+    upperGroup = buildShoeUpper(
+      bodyMaterial, outlineMaterial,
+      readCollarHeight(), readHeelNotch(),
+    );
+    scene.add(upperGroup);
+  }
+
+  // Slider readouts: show the live numeric value next to each slider so
+  // users see cause and effect. The .val span next to each <input> is
+  // already wired by index.html; we just overwrite its text.
+  function valSpanFor(slider) {
+    if (!slider) return null;
+    return document.querySelector(`.val[data-for="${slider.id}"]`);
+  }
+  if (collarHeightSlider) {
+    const span = valSpanFor(collarHeightSlider);
+    const onInput = () => {
+      if (span) span.textContent = `${readCollarHeight().toFixed(0)} cm`;
+      rebuildUpper();
+    };
+    collarHeightSlider.addEventListener('input', onInput);
+    onInput();
+  }
+  if (heelNotchSlider) {
+    const span = valSpanFor(heelNotchSlider);
+    const onInput = () => {
+      if (span) span.textContent = readHeelNotch().toFixed(1);
+      rebuildUpper();
+    };
+    heelNotchSlider.addEventListener('input', onInput);
+    onInput();
+  }
 
   // ── Resize ──────────────────────────────────────────────────────────
   function resize() {
