@@ -3,8 +3,8 @@
 // Build ladder (spec §8 + addendum §9):
 //   1. Empty scene + test cube         ← done
 //   2. Footprint outline only          ← done
-//   3. Sole slab                       ← CURRENT
-//   4. Side silhouette curve
+//   3. Sole slab                       ← done
+//   4. Side silhouette curve           ← CURRENT
 //   5. Closed-top lofted shell
 //   6. Open the top via collarHeightAt
 //   7. Hook up sliders
@@ -13,11 +13,11 @@
 //  10. 3D stones (scroll-triggered)
 //  11. Collar-gap collision + counter
 //
-// Step 3 extrudes the step-2 footprint downward by SOLE_THICKNESS into a
-// foot-shaped puck. The sole's bottom sits on the ground (y = 0); its
-// top, at y = SOLE_THICKNESS, is where the upper attaches in later
-// steps. Same `halfWidthAt` and `lengthCoords` as step 2 — the sole
-// inherits the verified silhouette instead of redefining it.
+// Step 3 extrudes the step-2 footprint into a foot-shaped puck. Step 4
+// overlays the upper's top-edge height profile as a polyline above the
+// sole's lateral edge — the §11/§9.3 way to confirm the ankle peak and
+// throat dip exist before lofting any 3D shell. The polyline is
+// temporary: step 5 replaces it with the actual cross-section loft.
 //
 // Coordinate convention:
 //   +X = forward (toe), +Y = up, +Z = lateral side of the (right) foot.
@@ -36,6 +36,12 @@ const HEEL_CAP_FRAC  = 0.06;
 const TOE_CAP_FRAC   = 0.10;
 const HEEL_CAP_REACH = 1.4;
 const TOE_CAP_REACH  = 2.8;
+
+// Step-7 sliders will drive these; spec §12 defaults for now.
+const COLLAR_HEIGHT  = 6.0;
+const HEEL_NOTCH     = 0.4;
+
+const lerp = (a, b, t) => a * (1 - t) + b * t;
 
 // ── Footprint half-width along the length (addendum §2) ────────────────
 // Coefficients tuned against addendum §11:
@@ -78,6 +84,45 @@ function lengthCoords(t) {
     scale: 1,
     s,
   };
+}
+
+// ── Upper top-edge height along the length (addendum §3) ───────────────
+// t ∈ [0, 1] across the full shoe (0 = heel tip, 1 = toe tip). Piecewise
+// linear between four anatomical anchors:
+//   heelTop  — heel cup, dipped from ankleTop by HEEL_NOTCH
+//   ankleTop — collar peak  (≈ t = 0.15 per formula)
+//   throatTop — laces dip   (≈ t = 0.40)
+//   toeTop   — toe box rim  (≈ t = 0.85)
+// Without these anchors the upper reads as a wedge instead of a shoe.
+function upperHeightAlongLength(t, collarHeight = COLLAR_HEIGHT, heelNotch = HEEL_NOTCH) {
+  const heelTop   = collarHeight * (1 - heelNotch * 0.5);
+  const ankleTop  = collarHeight;
+  const throatTop = collarHeight * 0.65;
+  const toeTop    = 2.0;
+  if (t < 0.15) return lerp(heelTop,   ankleTop,  t / 0.15);
+  if (t < 0.40) return lerp(ankleTop,  throatTop, (t - 0.15) / 0.25);
+  if (t < 0.85) return lerp(throatTop, toeTop,    (t - 0.40) / 0.45);
+  return              lerp(toeTop,    0.5,       (t - 0.85) / 0.15);
+}
+
+// Step-4 verification overlay: trace the top edge of the upper along
+// the sole's lateral side. Open polyline (Line, not LineLoop). Removed
+// in step 5 when the loft replaces it.
+function buildSideSilhouetteCurve(material) {
+  const N = 128;
+  const positions = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const { x, scale, s } = lengthCoords(t);
+    const y = SOLE_THICKNESS + upperHeightAlongLength(t);
+    const z = halfWidthAt(s) * scale;
+    positions.push(x, y, z);
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const line = new THREE.Line(geom, material);
+  line.name = 'sideSilhouette';
+  return line;
 }
 
 // ── Sole (addendum §6) ──────────────────────────────────────────────────
@@ -167,11 +212,16 @@ export function createAct3View(opts) {
     color: 0x1a1a1a,
     side: THREE.BackSide,
   });
+  // Step-4 overlay material: a single-tone line; theme-aware so it stays
+  // visible on both backgrounds. Distinct from outlineMaterial only so
+  // toggling step 4 vs the final shell is easy to spot.
+  const silhouetteMaterial = new THREE.LineBasicMaterial({ color: 0x1a1a1a });
   function applyTheme() {
     const dark = darkQuery.matches;
     scene.background = new THREE.Color(dark ? 0x111111 : 0xffffff);
     bodyMaterial.color.setHex(dark ? 0xdddddd : 0xffffff);
     outlineMaterial.color.setHex(dark ? 0xe4e4e4 : 0x1a1a1a);
+    silhouetteMaterial.color.setHex(dark ? 0xe4e4e4 : 0x1a1a1a);
   }
   applyTheme();
   darkQuery.addEventListener('change', applyTheme);
@@ -187,6 +237,7 @@ export function createAct3View(opts) {
   controls.update();
 
   scene.add(buildSole(bodyMaterial, outlineMaterial));
+  scene.add(buildSideSilhouetteCurve(silhouetteMaterial));
 
   // ── Resize ──────────────────────────────────────────────────────────
   function resize() {
